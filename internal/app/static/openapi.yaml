@@ -1,0 +1,423 @@
+openapi: 3.0.3
+info:
+  title: Planner Backend API
+  version: "1.0"
+  description: REST API для планирования развертывания информационных систем
+servers:
+  - url: http://localhost:8080/api
+security:
+  - BearerAuth: []
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+    User:
+      type: object
+      properties:
+        id: { type: integer }
+        email: { type: string }
+        name: { type: string }
+        role: { type: string, enum: [admin, customer, executor] }
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string }
+        password: { type: string }
+    RegisterRequest:
+      type: object
+      required: [email, password, name, role]
+      properties:
+        email: { type: string }
+        password: { type: string }
+        name: { type: string }
+        role: { type: string, enum: [customer, executor] }
+    LoginResponse:
+      type: object
+      properties:
+        token: { type: string }
+        user: { $ref: '#/components/schemas/User' }
+    Work:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        description: { type: string }
+        normative_hours: { type: integer, minimum: 1 }
+    CreateRequestBody:
+      type: object
+      required: [title, contour_id]
+      properties:
+        title: { type: string }
+        contour_id: { type: integer }
+    AddTasksBody:
+      type: object
+      required: [work_ids]
+      properties:
+        work_ids:
+          type: array
+          items: { type: integer }
+    TaskStatusBody:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [in_progress, completed] }
+    RequestLog:
+      type: object
+      properties:
+        id: { type: integer }
+        request_id: { type: integer }
+        user_id: { type: integer }
+        action: { type: string }
+        old_status: { type: string, nullable: true }
+        new_status: { type: string, nullable: true }
+        details: { type: string }
+        created_at: { type: string, format: date-time }
+        user: { $ref: '#/components/schemas/User' }
+    TaskLog:
+      type: object
+      properties:
+        id: { type: integer }
+        task_id: { type: integer }
+        user_id: { type: integer }
+        old_status: { type: string, nullable: true }
+        new_status: { type: string }
+        created_at: { type: string, format: date-time }
+        user: { $ref: '#/components/schemas/User' }
+paths:
+  /register:
+    post:
+      security: []
+      tags: [Auth]
+      summary: Регистрация (customer/executor)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterRequest' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginResponse' }
+  /login:
+    post:
+      security: []
+      tags: [Auth]
+      summary: Логин
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginResponse' }
+  /me:
+    get:
+      tags: [Auth]
+      summary: Текущий пользователь по JWT
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+  /works:
+    get:
+      tags: [Customer]
+      summary: Справочник работ
+      responses:
+        '200':
+          description: OK
+  /contours:
+    get:
+      tags: [Customer]
+      summary: Список контуров
+      responses:
+        '200':
+          description: OK
+  /requests:
+    get:
+      tags: [Customer]
+      summary: Список заявок заказчика
+      responses:
+        '200':
+          description: OK
+    post:
+      tags: [Customer]
+      summary: Создать заявку (черновик)
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateRequestBody' }
+      responses:
+        '201':
+          description: Created
+  /requests/{id}:
+    get:
+      tags: [Customer, Executor]
+      summary: Детали заявки
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: OK
+  /requests/{id}/tasks:
+    post:
+      tags: [Customer]
+      summary: Добавить задачи в план
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddTasksBody' }
+      responses:
+        '200':
+          description: OK
+  /requests/{id}/tasks/{task_id}:
+    delete:
+      tags: [Customer]
+      summary: Удалить задачу из черновика
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: task_id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '204':
+          description: No Content
+  /requests/{id}/submit:
+    post:
+      tags: [Customer]
+      summary: Отправить заявку на исполнение
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: OK
+  /requests/{id}/report:
+    get:
+      tags: [Customer]
+      summary: Отчёт по заявке
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: format
+          in: query
+          schema: { type: string, enum: [json, pdf], default: json }
+      responses:
+        '200':
+          description: JSON или PDF
+  /tasks:
+    get:
+      tags: [Executor]
+      summary: Список назначенных задач
+      responses:
+        '200':
+          description: OK
+  /tasks/{id}:
+    get:
+      tags: [Executor]
+      summary: Детали задачи
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: OK
+  /tasks/{id}/status:
+    put:
+      tags: [Executor]
+      summary: Изменить статус задачи
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TaskStatusBody' }
+      responses:
+        '200':
+          description: OK
+  /admin/users:
+    get:
+      tags: [Admin]
+      summary: Список пользователей
+      responses:
+        '200':
+          description: OK
+    post:
+      tags: [Admin]
+      summary: Создать пользователя
+      responses:
+        '201':
+          description: Created
+  /admin/users/{id}:
+    put:
+      tags: [Admin]
+      summary: Обновить пользователя
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: OK
+    delete:
+      tags: [Admin]
+      summary: Удалить пользователя
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '204':
+          description: No Content
+  /admin/works:
+    get:
+      tags: [Admin]
+      summary: Список типовых работ
+      responses:
+        '200':
+          description: OK
+    post:
+      tags: [Admin]
+      summary: Создать работу
+      responses:
+        '201':
+          description: Created
+  /admin/works/{id}:
+    put:
+      tags: [Admin]
+      summary: Обновить работу
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: OK
+    delete:
+      tags: [Admin]
+      summary: Удалить работу
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '204':
+          description: No Content
+  /admin/contours:
+    get:
+      tags: [Admin]
+      summary: Список контуров
+      responses:
+        '200':
+          description: OK
+    post:
+      tags: [Admin]
+      summary: Создать контур
+      responses:
+        '201':
+          description: Created
+  /admin/contours/{id}:
+    put:
+      tags: [Admin]
+      summary: Обновить контур
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: OK
+    delete:
+      tags: [Admin]
+      summary: Удалить контур
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '204':
+          description: No Content
+  /admin/request-logs:
+    get:
+      tags: [Admin]
+      summary: Журнал действий по заявкам
+      parameters:
+        - name: request_id
+          in: query
+          schema: { type: integer }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 100, maximum: 500 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/RequestLog' }
+  /admin/task-logs:
+    get:
+      tags: [Admin]
+      summary: Журнал смен статусов задач
+      parameters:
+        - name: task_id
+          in: query
+          schema: { type: integer }
+        - name: request_id
+          in: query
+          schema: { type: integer }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 100, maximum: 500 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/TaskLog' }

@@ -1,0 +1,204 @@
+{
+  "info": {
+    "name": "Planner API (full)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "token", "value": "" },
+    { "key": "requestId", "value": "1" },
+    { "key": "taskId", "value": "1" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Me",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/me" }
+        },
+        {
+          "name": "Register customer",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": ["var j=pm.response.json(); if(j.token) pm.collectionVariables.set('token', j.token);"]
+            }
+          }],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/register",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"customer@example.com\",\n  \"password\": \"123456\",\n  \"name\": \"Заказчик\",\n  \"role\": \"customer\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Register executor",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/register",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"executor@example.com\",\n  \"password\": \"123456\",\n  \"name\": \"Исполнитель\",\n  \"role\": \"executor\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Login admin",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": ["var j=pm.response.json(); if(j.token) pm.collectionVariables.set('token', j.token);"]
+            }
+          }],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@planner.local\",\n  \"password\": \"admin123456\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Login customer",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": ["var j=pm.response.json(); if(j.token) pm.collectionVariables.set('token', j.token);"]
+            }
+          }],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"customer@example.com\",\n  \"password\": \"123456\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Login executor",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": ["var j=pm.response.json(); if(j.token) pm.collectionVariables.set('token', j.token);"]
+            }
+          }],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"executor@example.com\",\n  \"password\": \"123456\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin",
+      "item": [
+        { "name": "List users", "request": { "method": "GET", "url": "{{baseUrl}}/api/admin/users" } },
+        {
+          "name": "Create user",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/admin/users",
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"exec2@example.com\",\n  \"password\": \"123456\",\n  \"name\": \"Исполнитель 2\",\n  \"role\": \"executor\"\n}" }
+          }
+        },
+        { "name": "List works", "request": { "method": "GET", "url": "{{baseUrl}}/api/admin/works" } },
+        {
+          "name": "Create work",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/admin/works",
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Настройка DNS\",\n  \"description\": \"Записи и зоны\",\n  \"normative_hours\": 1\n}" }
+          }
+        },
+        { "name": "List contours", "request": { "method": "GET", "url": "{{baseUrl}}/api/admin/contours" } },
+        { "name": "Request logs", "request": { "method": "GET", "url": "{{baseUrl}}/api/admin/request-logs?limit=50" } },
+        { "name": "Task logs", "request": { "method": "GET", "url": "{{baseUrl}}/api/admin/task-logs?limit=50" } }
+      ]
+    },
+    {
+      "name": "Customer",
+      "item": [
+        { "name": "List works", "request": { "method": "GET", "url": "{{baseUrl}}/api/works" } },
+        { "name": "List contours", "request": { "method": "GET", "url": "{{baseUrl}}/api/contours" } },
+        {
+          "name": "Create request",
+          "event": [{
+            "listen": "test",
+            "script": { "exec": ["var j=pm.response.json(); if(j.id) pm.collectionVariables.set('requestId', j.id);"] }
+          }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/requests",
+            "body": { "mode": "raw", "raw": "{\n  \"title\": \"Развертывание CRM\",\n  \"contour_id\": 3\n}" }
+          }
+        },
+        { "name": "List requests", "request": { "method": "GET", "url": "{{baseUrl}}/api/requests" } },
+        { "name": "Get request", "request": { "method": "GET", "url": "{{baseUrl}}/api/requests/{{requestId}}" } },
+        {
+          "name": "Add tasks",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/requests/{{requestId}}/tasks",
+            "body": { "mode": "raw", "raw": "{\n  \"work_ids\": [1, 2, 3]\n}" }
+          }
+        },
+        { "name": "Submit request", "request": { "method": "POST", "url": "{{baseUrl}}/api/requests/{{requestId}}/submit" } },
+        { "name": "Report JSON", "request": { "method": "GET", "url": "{{baseUrl}}/api/requests/{{requestId}}/report?format=json" } },
+        { "name": "Report PDF", "request": { "method": "GET", "url": "{{baseUrl}}/api/requests/{{requestId}}/report?format=pdf" } }
+      ]
+    },
+    {
+      "name": "Executor",
+      "item": [
+        { "name": "List tasks", "request": { "method": "GET", "url": "{{baseUrl}}/api/tasks" } },
+        { "name": "Get task", "request": { "method": "GET", "url": "{{baseUrl}}/api/tasks/{{taskId}}" } },
+        {
+          "name": "Status in_progress",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/tasks/{{taskId}}/status",
+            "body": { "mode": "raw", "raw": "{\n  \"status\": \"in_progress\"\n}" }
+          }
+        },
+        {
+          "name": "Status completed",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/tasks/{{taskId}}/status",
+            "body": { "mode": "raw", "raw": "{\n  \"status\": \"completed\"\n}" }
+          }
+        },
+        { "name": "View request", "request": { "method": "GET", "url": "{{baseUrl}}/api/requests/{{requestId}}" } }
+      ]
+    }
+  ]
+}
