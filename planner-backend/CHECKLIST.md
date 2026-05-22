@@ -18,4 +18,4 @@ CORS для фронта
 
 Проверка: scripts/full-checkup.ps1 при запущенном сервере
 
-Не входит в бэкенд: UI (участник 2), docker-compose (участник 3)
+Не входит в бэкенд: UI, docker-compose
