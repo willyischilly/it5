@@ -1,4 +1,4 @@
-Чеклист бэкенда (участник 1)
+Чеклист бэкенда
 
 REST API Go, Gin, слои handlers / services / repositories
 
