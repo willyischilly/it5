@@ -62,10 +62,16 @@ func NewRouter(cfg *config.Config, db *gorm.DB) (*gin.Engine, *services.AuthServ
 			customer.GET("/contours", customerHandler.ListContours)
 			customer.POST("/requests", customerHandler.CreateRequest)
 			customer.GET("/requests", customerHandler.ListRequests)
+			customer.GET("/requests/reports/summary", customerHandler.GetAllReportsSummary)
+			customer.GET("/requests/reports/summary/pdf", customerHandler.GetAllReportsSummaryPDF)
+			customer.PUT("/requests/:id", customerHandler.UpdateRequest)
+			customer.DELETE("/requests/:id", customerHandler.DeleteRequest)
+			customer.POST("/requests/:id/extend-deadline", customerHandler.ExtendDeadline)
 			customer.POST("/requests/:id/tasks", customerHandler.AddTasks)
 			customer.DELETE("/requests/:id/tasks/:task_id", customerHandler.DeleteTask)
 			customer.POST("/requests/:id/submit", customerHandler.Submit)
 			customer.GET("/requests/:id/report", customerHandler.GetReport)
+			customer.GET("/requests/:id/report/pdf", customerHandler.GetReportPDF)
 		}
 
 		executor := protected.Group("")

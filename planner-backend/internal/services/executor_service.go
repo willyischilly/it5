@@ -109,35 +109,9 @@ func (s *ExecutorService) syncRequestStatus(requestID, userID uint) error {
 	if err != nil {
 		return err
 	}
-	oldStatus := req.Status
-	newStatus := oldStatus
-
-	allDone, err := s.tasks.AllCompleted(requestID)
+	tasks, err := s.tasks.ListByRequest(requestID)
 	if err != nil {
 		return err
 	}
-	if allDone {
-		newStatus = models.RequestStatusCompleted
-	} else {
-		inProgress, err := s.tasks.HasInProgress(requestID)
-		if err != nil {
-			return err
-		}
-		if inProgress {
-			newStatus = models.RequestStatusInProgress
-		}
-	}
-
-	if newStatus == oldStatus {
-		return nil
-	}
-
-	req.Status = newStatus
-	if err := s.requests.Update(req); err != nil {
-		return err
-	}
-
-	old := oldStatus
-	newS := newStatus
-	return s.audit.LogRequest(requestID, userID, models.RequestLogActionStatusChanged, &old, &newS, "")
+	return recomputeAndSaveRequestStatus(s.requests, s.audit, req, tasks, userID)
 }

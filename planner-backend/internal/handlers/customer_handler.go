@@ -1,12 +1,13 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
 	"planner-backend/internal/middleware"
-	"planner-backend/pkg/response"
 	"planner-backend/internal/services"
+	"planner-backend/pkg/response"
 
 	"github.com/gin-gonic/gin"
 )
@@ -73,6 +74,54 @@ func (h *CustomerHandler) GetRequest(c *gin.Context) {
 	response.JSON(c, http.StatusOK, req)
 }
 
+func (h *CustomerHandler) UpdateRequest(c *gin.Context) {
+	requestID, ok := parseRequestID(c)
+	if !ok {
+		return
+	}
+	var in services.UpdateRequestInput
+	if err := c.ShouldBindJSON(&in); err != nil {
+		response.BadRequest(c, "invalid request body")
+		return
+	}
+	req, err := h.customer.UpdateRequest(middleware.GetUserID(c), requestID, in)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.JSON(c, http.StatusOK, req)
+}
+
+func (h *CustomerHandler) DeleteRequest(c *gin.Context) {
+	requestID, ok := parseRequestID(c)
+	if !ok {
+		return
+	}
+	if err := h.customer.DeleteRequest(middleware.GetUserID(c), requestID); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+func (h *CustomerHandler) ExtendDeadline(c *gin.Context) {
+	requestID, ok := parseRequestID(c)
+	if !ok {
+		return
+	}
+	var in services.ExtendDeadlineInput
+	if err := c.ShouldBindJSON(&in); err != nil {
+		response.BadRequest(c, "invalid request body")
+		return
+	}
+	req, err := h.customer.ExtendDeadline(middleware.GetUserID(c), requestID, in)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.JSON(c, http.StatusOK, req)
+}
+
 func (h *CustomerHandler) AddTasks(c *gin.Context) {
 	requestID, ok := parseRequestID(c)
 	if !ok {
@@ -134,16 +183,66 @@ func (h *CustomerHandler) GetReport(c *gin.Context) {
 
 	format := c.DefaultQuery("format", "json")
 	if format == "pdf" {
-		pdfBytes, err := services.BuildReportPDF(report)
-		if err != nil {
-			response.Internal(c, "failed to generate PDF")
-			return
-		}
-		c.Header("Content-Disposition", "attachment; filename=report.pdf")
-		c.Data(http.StatusOK, "application/pdf", pdfBytes)
+		h.writeReportPDF(c, report)
 		return
 	}
 	response.JSON(c, http.StatusOK, report)
+}
+
+func (h *CustomerHandler) GetReportPDF(c *gin.Context) {
+	requestID, ok := parseRequestID(c)
+	if !ok {
+		return
+	}
+	report, err := h.customer.GetReport(middleware.GetUserID(c), requestID)
+	if err != nil {
+		response.NotFound(c, err.Error())
+		return
+	}
+	h.writeReportPDF(c, report)
+}
+
+func (h *CustomerHandler) writeReportPDF(c *gin.Context, report *services.ReportResponse) {
+	pdfBytes, err := services.BuildReportPDF(report)
+	if err != nil {
+		response.Internal(c, "failed to generate PDF")
+		return
+	}
+	name := fmt.Sprintf("report_%d.pdf", report.RequestID)
+	c.Header("Content-Disposition", "attachment; filename="+name)
+	c.Data(http.StatusOK, "application/pdf", pdfBytes)
+}
+
+func (h *CustomerHandler) GetAllReportsSummary(c *gin.Context) {
+	summary, err := h.customer.GetAllReportsSummary(middleware.GetUserID(c))
+	if err != nil {
+		response.Internal(c, err.Error())
+		return
+	}
+	if c.Query("format") == "pdf" {
+		h.writeSummaryPDF(c, summary)
+		return
+	}
+	response.JSON(c, http.StatusOK, summary)
+}
+
+func (h *CustomerHandler) GetAllReportsSummaryPDF(c *gin.Context) {
+	summary, err := h.customer.GetAllReportsSummary(middleware.GetUserID(c))
+	if err != nil {
+		response.Internal(c, err.Error())
+		return
+	}
+	h.writeSummaryPDF(c, summary)
+}
+
+func (h *CustomerHandler) writeSummaryPDF(c *gin.Context, summary *services.SummaryReportResponse) {
+	pdfBytes, err := services.BuildSummaryReportPDF(summary)
+	if err != nil {
+		response.Internal(c, "failed to generate PDF")
+		return
+	}
+	c.Header("Content-Disposition", "attachment; filename=reports_summary.pdf")
+	c.Data(http.StatusOK, "application/pdf", pdfBytes)
 }
 
 func parseRequestID(c *gin.Context) (uint, bool) {

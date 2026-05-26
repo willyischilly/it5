@@ -3,10 +3,12 @@ package services
 import (
 	"errors"
 
+	"strings"
+
 	"planner-backend/internal/models"
+	"planner-backend/internal/repositories"
 	"planner-backend/pkg/auth"
 	"planner-backend/pkg/validation"
-	"planner-backend/internal/repositories"
 
 	"gorm.io/gorm"
 )
@@ -192,9 +194,9 @@ func (s *AdminService) ListWorks() ([]models.Work, error) {
 }
 
 type WorkInput struct {
-	Name            string `json:"name"`
-	Description     string `json:"description"`
-	NormativeHours  int    `json:"normative_hours"`
+	Name           string `json:"name"`
+	Description    string `json:"description"`
+	NormativeHours int    `json:"normative_hours"`
 }
 
 func (s *AdminService) validateWorkInput(in WorkInput) error {
@@ -221,9 +223,9 @@ func (s *AdminService) CreateWork(in WorkInput) (*models.Work, error) {
 }
 
 type UpdateWorkInput struct {
-	Name            *string `json:"name"`
-	Description     *string `json:"description"`
-	NormativeHours  *int    `json:"normative_hours"`
+	Name           *string `json:"name"`
+	Description    *string `json:"description"`
+	NormativeHours *int    `json:"normative_hours"`
 }
 
 func (s *AdminService) UpdateWork(id uint, in UpdateWorkInput) (*models.Work, error) {
@@ -283,9 +285,16 @@ type ContourInput struct {
 	Name string `json:"name"`
 }
 
+func (s *AdminService) validateContourName(name string) error {
+	if !validation.MaxLen(name, 50) {
+		return errors.New("contour name is required and must be at most 50 characters")
+	}
+	return nil
+}
+
 func (s *AdminService) CreateContour(in ContourInput) (*models.DeploymentContour, error) {
-	if !models.ValidContourNames[in.Name] {
-		return nil, errors.New("contour name must be Dev, Qa, Uat, or Prod")
+	if err := s.validateContourName(in.Name); err != nil {
+		return nil, err
 	}
 	exists, err := s.contours.NameExists(in.Name, 0)
 	if err != nil {
@@ -294,7 +303,7 @@ func (s *AdminService) CreateContour(in ContourInput) (*models.DeploymentContour
 	if exists {
 		return nil, errors.New("contour name already exists")
 	}
-	c := &models.DeploymentContour{Name: in.Name}
+	c := &models.DeploymentContour{Name: strings.TrimSpace(in.Name)}
 	if err := s.contours.Create(c); err != nil {
 		return nil, err
 	}
@@ -309,8 +318,8 @@ func (s *AdminService) UpdateContour(id uint, in ContourInput) (*models.Deployme
 		}
 		return nil, err
 	}
-	if !models.ValidContourNames[in.Name] {
-		return nil, errors.New("contour name must be Dev, Qa, Uat, or Prod")
+	if err := s.validateContourName(in.Name); err != nil {
+		return nil, err
 	}
 	exists, err := s.contours.NameExists(in.Name, id)
 	if err != nil {
@@ -319,7 +328,7 @@ func (s *AdminService) UpdateContour(id uint, in ContourInput) (*models.Deployme
 	if exists {
 		return nil, errors.New("contour name already exists")
 	}
-	c.Name = in.Name
+	c.Name = strings.TrimSpace(in.Name)
 	if err := s.contours.Update(c); err != nil {
 		return nil, err
 	}
@@ -333,6 +342,13 @@ func (s *AdminService) DeleteContour(id uint) error {
 			return errors.New("contour not found")
 		}
 		return err
+	}
+	inUse, err := s.contours.InUse(id)
+	if err != nil {
+		return err
+	}
+	if inUse {
+		return errors.New("contour is used in requests and cannot be deleted")
 	}
 	return s.contours.Delete(id)
 }

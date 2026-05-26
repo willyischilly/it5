@@ -50,6 +50,11 @@ func TestMain(m *testing.M) {
 		os.Exit(0)
 	}
 
+	// Make tests repeatable: keep seeded works/contours/admin, wipe mutable data.
+	// Without this, old executors/customers remain and task assignment becomes non-deterministic.
+	_ = testDB.Exec("TRUNCATE TABLE task_logs, request_logs, tasks, requests RESTART IDENTITY CASCADE").Error
+	_ = testDB.Where("email <> ?", "admin@planner.local").Delete(&models.User{}).Error
+
 	r, _ := app.NewRouter(testCfg, testDB)
 	testServer = httptest.NewServer(r)
 	code := m.Run()

@@ -25,3 +25,8 @@ func NonEmpty(s string) bool {
 func PositiveInt(n int) bool {
 	return n >= 1
 }
+
+func MaxLen(s string, max int) bool {
+	s = strings.TrimSpace(s)
+	return s != "" && len(s) <= max
+}

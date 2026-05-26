@@ -41,6 +41,12 @@ func (r *ContourRepository) Delete(id uint) error {
 	return r.db.Delete(&models.DeploymentContour{}, id).Error
 }
 
+func (r *ContourRepository) InUse(id uint) (bool, error) {
+	var count int64
+	err := r.db.Model(&models.Request{}).Where("contour_id = ?", id).Count(&count).Error
+	return count > 0, err
+}
+
 func (r *ContourRepository) NameExists(name string, excludeID uint) (bool, error) {
 	var count int64
 	q := r.db.Model(&models.DeploymentContour{}).Where("name = ?", name)

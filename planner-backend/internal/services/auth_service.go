@@ -6,9 +6,9 @@ import (
 
 	"planner-backend/internal/config"
 	"planner-backend/internal/models"
+	"planner-backend/internal/repositories"
 	"planner-backend/pkg/auth"
 	"planner-backend/pkg/validation"
-	"planner-backend/internal/repositories"
 
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
@@ -16,8 +16,8 @@ import (
 )
 
 type AuthService struct {
-	users  *repositories.UserRepository
-	cfg    *config.Config
+	users *repositories.UserRepository
+	cfg   *config.Config
 }
 
 func NewAuthService(users *repositories.UserRepository, cfg *config.Config) *AuthService {

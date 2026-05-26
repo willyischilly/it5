@@ -237,6 +237,46 @@ paths:
       responses:
         '200':
           description: JSON или PDF
+  /requests/reports/summary:
+    get:
+      tags: [Customer]
+      summary: Сводный отчёт по всем заявкам заказчика
+      parameters:
+        - name: format
+          in: query
+          schema: { type: string, enum: [json, pdf], default: json }
+      responses:
+        '200':
+          description: JSON или PDF
+  /requests/reports/summary/pdf:
+    get:
+      tags: [Customer]
+      summary: Сводный PDF по всем заявкам
+      responses:
+        '200':
+          description: application/pdf
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+  /requests/{id}/report/pdf:
+    get:
+      tags: [Customer]
+      summary: PDF-отчёт по заявке (скачивание)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: application/pdf
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
   /tasks:
     get:
       tags: [Executor]

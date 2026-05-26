@@ -73,7 +73,19 @@ func (r *TaskRepository) Delete(id uint) error {
 	return r.db.Delete(&models.Task{}, id).Error
 }
 
+func (r *TaskRepository) FindByRequestAndID(requestID, taskID uint) (*models.Task, error) {
+	var task models.Task
+	err := r.db.Where("request_id = ? AND id = ?", requestID, taskID).First(&task).Error
+	if err != nil {
+		return nil, err
+	}
+	return &task, nil
+}
+
 func (r *TaskRepository) DeleteByRequestAndID(requestID, taskID uint) error {
+	if err := r.db.Where("task_id = ?", taskID).Delete(&models.TaskLog{}).Error; err != nil {
+		return err
+	}
 	result := r.db.Where("request_id = ? AND id = ?", requestID, taskID).
 		Delete(&models.Task{})
 	if result.Error != nil {

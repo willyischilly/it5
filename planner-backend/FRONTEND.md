@@ -59,13 +59,29 @@ executor — /api/tasks, смена статуса, GET /api/requests/:id есл
 
 Как обычно строить экраны
 
-Заказчик логинится, берёт контуры и работы, создаёт заявку POST /api/requests, добавляет работы POST /api/requests/:id/tasks с телом work_ids, отправляет POST /api/requests/:id/submit.
+Заказчик логинится, берёт контуры и работы, создаёт заявку POST /api/requests (можно сразу deadline_at в ISO), правит черновик PUT /api/requests/:id.
+
+Удаление заявки DELETE /api/requests/:id — в черновике (draft) или когда заявка отправлена (submitted) и все задачи ещё pending («в планах»).
+
+Добавление работ POST /api/requests/:id/tasks — только в черновике. Тело tasks: [{ work_id, comment }] или work_ids: [1,2].
+
+Удаление задачи DELETE /api/requests/:id/tasks/:task_id — в черновике или если у задачи статус pending (в планах), пока заявка не completed/overdue.
+
+Отправка POST /api/requests/:id/submit. Если дедлайн прошёл — статус overdue, продление POST /api/requests/:id/extend-deadline с новым deadline_at.
 
 Исполнитель видит GET /api/tasks, меняет статус PUT /api/tasks/:id/status: сначала in_progress, потом completed.
 
-Заказчик смотрит GET /api/requests/:id и отчёт GET /api/requests/:id/report?format=json или format=pdf.
+Заказчик смотрит GET /api/requests/:id и отчёты:
 
-Статусы заявки: draft, submitted, in_progress, completed.
+По одной заявке:
+- JSON: GET /api/requests/:id/report
+- PDF: GET /api/requests/:id/report/pdf
+
+По всем заявкам заказчика (сводка: статусы, что выполнено, что нет):
+- JSON: GET /api/requests/reports/summary
+- PDF: GET /api/requests/reports/summary/pdf
+
+Статусы заявки: draft, submitted, in_progress, completed, overdue.
 Статусы задачи: pending, in_progress, completed. Перескакивать нельзя.
 
 После submit задачи разъезжаются по исполнителям по кругу, если их несколько.

@@ -3,11 +3,12 @@ package services
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"planner-backend/internal/models"
-	"planner-backend/pkg/validation"
 	"planner-backend/internal/repositories"
+	"planner-backend/pkg/validation"
 
 	"gorm.io/gorm"
 )
@@ -40,8 +41,24 @@ func NewCustomerService(
 }
 
 type CreateRequestInput struct {
-	Title     string `json:"title"`
-	ContourID uint   `json:"contour_id"`
+	Title      string     `json:"title"`
+	ContourID  uint       `json:"contour_id"`
+	DeadlineAt *time.Time `json:"deadline_at"`
+}
+
+type UpdateRequestInput struct {
+	Title      *string    `json:"title"`
+	ContourID  *uint      `json:"contour_id"`
+	DeadlineAt *time.Time `json:"deadline_at"`
+}
+
+type ExtendDeadlineInput struct {
+	DeadlineAt time.Time `json:"deadline_at"`
+}
+
+type AddTaskItem struct {
+	WorkID  uint   `json:"work_id"`
+	Comment string `json:"comment"`
 }
 
 func (s *CustomerService) CreateRequest(customerID uint, in CreateRequestInput) (*models.Request, error) {
@@ -54,12 +71,16 @@ func (s *CustomerService) CreateRequest(customerID uint, in CreateRequestInput) 
 		}
 		return nil, err
 	}
+	if err := validateFutureDeadline(in.DeadlineAt); err != nil {
+		return nil, err
+	}
 
 	req := &models.Request{
 		Title:      in.Title,
 		CustomerID: customerID,
 		ContourID:  in.ContourID,
 		Status:     models.RequestStatusDraft,
+		DeadlineAt: in.DeadlineAt,
 		TotalHours: 0,
 	}
 	if err := s.requests.Create(req); err != nil {
@@ -74,11 +95,99 @@ func (s *CustomerService) CreateRequest(customerID uint, in CreateRequestInput) 
 }
 
 func (s *CustomerService) ListRequests(customerID uint) ([]models.Request, error) {
+	list, err := s.requests.ListByCustomer(customerID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range list {
+		_ = s.applyOverdueIfNeeded(&list[i])
+	}
 	return s.requests.ListByCustomer(customerID)
 }
 
 func (s *CustomerService) GetRequest(customerID, requestID uint) (*models.Request, error) {
-	return s.getDraftOrOwned(customerID, requestID)
+	return s.refreshRequest(customerID, requestID)
+}
+
+func (s *CustomerService) UpdateRequest(customerID, requestID uint, in UpdateRequestInput) (*models.Request, error) {
+	req, err := s.getDraftOrOwned(customerID, requestID)
+	if err != nil {
+		return nil, err
+	}
+	if !models.CanEditPlan(req) {
+		return nil, errors.New("can only edit requests in draft status")
+	}
+	if in.Title != nil {
+		if !validation.NonEmpty(*in.Title) {
+			return nil, errors.New("title is required")
+		}
+		req.Title = *in.Title
+	}
+	if in.ContourID != nil {
+		if _, err := s.contours.FindByID(*in.ContourID); err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, errors.New("contour not found")
+			}
+			return nil, err
+		}
+		req.ContourID = *in.ContourID
+	}
+	if in.DeadlineAt != nil {
+		if err := validateFutureDeadline(in.DeadlineAt); err != nil {
+			return nil, err
+		}
+		req.DeadlineAt = in.DeadlineAt
+	}
+	if err := s.requests.Update(req); err != nil {
+		return nil, err
+	}
+	return s.requests.FindByIDAndCustomer(requestID, customerID)
+}
+
+func (s *CustomerService) DeleteRequest(customerID, requestID uint) error {
+	req, err := s.getDraftOrOwned(customerID, requestID)
+	if err != nil {
+		return err
+	}
+	tasks, err := s.tasks.ListByRequest(requestID)
+	if err != nil {
+		return err
+	}
+	if !models.CanCustomerDeleteRequest(req, tasks) {
+		return errors.New("can only delete draft requests or submitted plans where all tasks are still pending")
+	}
+	return s.requests.DeleteByID(requestID)
+}
+
+func (s *CustomerService) ExtendDeadline(customerID, requestID uint, in ExtendDeadlineInput) (*models.Request, error) {
+	req, err := s.getDraftOrOwned(customerID, requestID)
+	if err != nil {
+		return nil, err
+	}
+	if req.Status != models.RequestStatusOverdue {
+		return nil, errors.New("deadline can only be extended for overdue requests")
+	}
+	if err := validateFutureDeadline(&in.DeadlineAt); err != nil {
+		return nil, err
+	}
+	if err := s.requests.UpdateDeadline(requestID, &in.DeadlineAt); err != nil {
+		return nil, err
+	}
+	req, err = s.requests.FindByIDAndCustomer(requestID, customerID)
+	if err != nil {
+		return nil, err
+	}
+
+	tasks, err := s.tasks.ListByRequest(requestID)
+	if err != nil {
+		return nil, err
+	}
+	if err := recomputeAndSaveRequestStatus(s.requests, s.audit, req, tasks, customerID); err != nil {
+		return nil, err
+	}
+	_ = s.audit.LogRequest(requestID, customerID, models.RequestLogActionDeadlineExtended, nil, nil,
+		in.DeadlineAt.Format(time.RFC3339))
+	return s.requests.FindByIDAndCustomer(requestID, customerID)
 }
 
 func (s *CustomerService) getDraftOrOwned(customerID, requestID uint) (*models.Request, error) {
@@ -93,7 +202,8 @@ func (s *CustomerService) getDraftOrOwned(customerID, requestID uint) (*models.R
 }
 
 type AddTasksInput struct {
-	WorkIDs []uint `json:"work_ids"`
+	WorkIDs []uint        `json:"work_ids"`
+	Tasks   []AddTaskItem `json:"tasks"`
 }
 
 func (s *CustomerService) AddTasks(customerID, requestID uint, in AddTasksInput) (*models.Request, error) {
@@ -101,14 +211,20 @@ func (s *CustomerService) AddTasks(customerID, requestID uint, in AddTasksInput)
 	if err != nil {
 		return nil, err
 	}
-	if req.Status != models.RequestStatusDraft {
-		return nil, errors.New("can only modify tasks in draft requests")
-	}
-	if len(in.WorkIDs) == 0 {
-		return nil, errors.New("work_ids is required")
+	if !models.CanEditPlan(req) {
+		return nil, errors.New("can only modify tasks while request is in draft")
 	}
 
-	uniqueIDs := dedupeUints(in.WorkIDs)
+	items, err := normalizeAddTasks(in)
+	if err != nil {
+		return nil, err
+	}
+
+	workIDs := make([]uint, len(items))
+	for i, it := range items {
+		workIDs[i] = it.WorkID
+	}
+	uniqueIDs := dedupeUints(workIDs)
 	works, err := s.works.FindByIDs(uniqueIDs)
 	if err != nil {
 		return nil, err
@@ -125,12 +241,13 @@ func (s *CustomerService) AddTasks(customerID, requestID uint, in AddTasksInput)
 		return nil, fmt.Errorf("work ids already in plan: %v", existing)
 	}
 
-	newTasks := make([]models.Task, 0, len(uniqueIDs))
-	for _, wid := range uniqueIDs {
+	newTasks := make([]models.Task, 0, len(items))
+	for _, it := range items {
 		newTasks = append(newTasks, models.Task{
-			RequestID: requestID,
-			WorkID:    wid,
-			Status:    models.TaskStatusPending,
+			RequestID:       requestID,
+			WorkID:          it.WorkID,
+			Status:          models.TaskStatusPending,
+			CustomerComment: strings.TrimSpace(it.Comment),
 		})
 	}
 	if err := s.tasks.CreateBatch(newTasks); err != nil {
@@ -149,18 +266,39 @@ func (s *CustomerService) DeleteTask(customerID, requestID, taskID uint) error {
 	if err != nil {
 		return err
 	}
-	if req.Status != models.RequestStatusDraft {
-		return errors.New("can only modify tasks in draft requests")
-	}
-
-	if err := s.tasks.DeleteByRequestAndID(requestID, taskID); err != nil {
+	task, err := s.tasks.FindByRequestAndID(requestID, taskID)
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return errors.New("task not found")
 		}
 		return err
 	}
+	if !models.CanCustomerDeleteTask(req, task) {
+		return errors.New("can only delete tasks in pending status while the plan is not completed or overdue")
+	}
 
-	return s.recalcTotalHours(requestID)
+	if err := s.tasks.DeleteByRequestAndID(requestID, taskID); err != nil {
+		return err
+	}
+
+	if err := s.recalcTotalHours(requestID); err != nil {
+		return err
+	}
+
+	count, err := s.tasks.CountByRequest(requestID)
+	if err != nil {
+		return err
+	}
+	if count == 0 && req.Status == models.RequestStatusSubmitted {
+		_ = s.requests.UpdateStatus(requestID, models.RequestStatusDraft)
+	} else if req.Status != models.RequestStatusDraft {
+		tasks, err := s.tasks.ListByRequest(requestID)
+		if err != nil {
+			return err
+		}
+		return recomputeAndSaveRequestStatus(s.requests, s.audit, req, tasks, customerID)
+	}
+	return nil
 }
 
 func (s *CustomerService) recalcTotalHours(requestID uint) error {
@@ -176,8 +314,11 @@ func (s *CustomerService) Submit(customerID, requestID uint) (*models.Request, e
 	if err != nil {
 		return nil, err
 	}
-	if req.Status != models.RequestStatusDraft {
+	if !models.CanEditPlan(req) {
 		return nil, errors.New("only draft requests can be submitted")
+	}
+	if req.DeadlineAt != nil && time.Now().After(*req.DeadlineAt) {
+		return nil, errors.New("deadline has already passed")
 	}
 
 	count, err := s.tasks.CountByRequest(requestID)
@@ -222,15 +363,18 @@ func (s *CustomerService) Submit(customerID, requestID uint) (*models.Request, e
 }
 
 type ReportTask struct {
-	Name           string `json:"name"`
-	NormativeHours int    `json:"normative_hours"`
-	Status         string `json:"status"`
+	Name            string `json:"name"`
+	NormativeHours  int    `json:"normative_hours"`
+	Status          string `json:"status"`
+	CustomerComment string `json:"customer_comment,omitempty"`
 }
 
 type ReportResponse struct {
 	RequestID      uint         `json:"request_id"`
 	Title          string       `json:"title"`
 	Contour        string       `json:"contour"`
+	Status         string       `json:"status"`
+	DeadlineAt     *time.Time   `json:"deadline_at,omitempty"`
 	CreatedAt      time.Time    `json:"created_at"`
 	Tasks          []ReportTask `json:"tasks"`
 	TotalTasks     int          `json:"total_tasks"`
@@ -240,7 +384,7 @@ type ReportResponse struct {
 }
 
 func (s *CustomerService) GetReport(customerID, requestID uint) (*ReportResponse, error) {
-	req, err := s.getDraftOrOwned(customerID, requestID)
+	req, err := s.refreshRequest(customerID, requestID)
 	if err != nil {
 		return nil, err
 	}
@@ -258,6 +402,7 @@ func (s *CustomerService) GetReport(customerID, requestID uint) (*ReportResponse
 		}
 		reportTasks = append(reportTasks, ReportTask{
 			Name: name, NormativeHours: hours, Status: t.Status,
+			CustomerComment: t.CustomerComment,
 		})
 		if t.Status == models.TaskStatusCompleted {
 			completed++
@@ -274,6 +419,8 @@ func (s *CustomerService) GetReport(customerID, requestID uint) (*ReportResponse
 		RequestID:      req.ID,
 		Title:          req.Title,
 		Contour:        contourName,
+		Status:         req.Status,
+		DeadlineAt:     req.DeadlineAt,
 		CreatedAt:      req.CreatedAt,
 		Tasks:          reportTasks,
 		TotalTasks:     len(req.Tasks),
@@ -311,5 +458,37 @@ func (s *CustomerService) ViewRequestByID(requestID uint) (*models.Request, erro
 		}
 		return nil, err
 	}
-	return req, nil
+	if err := s.applyOverdueIfNeeded(req); err != nil {
+		return nil, err
+	}
+	return s.requests.FindByID(requestID)
+}
+
+func validateFutureDeadline(deadline *time.Time) error {
+	if deadline == nil {
+		return nil
+	}
+	if !deadline.After(time.Now()) {
+		return errors.New("deadline must be in the future")
+	}
+	return nil
+}
+
+func normalizeAddTasks(in AddTasksInput) ([]AddTaskItem, error) {
+	if len(in.Tasks) > 0 {
+		for _, t := range in.Tasks {
+			if t.WorkID == 0 {
+				return nil, errors.New("work_id is required for each task")
+			}
+		}
+		return in.Tasks, nil
+	}
+	if len(in.WorkIDs) == 0 {
+		return nil, errors.New("tasks or work_ids is required")
+	}
+	out := make([]AddTaskItem, len(in.WorkIDs))
+	for i, id := range in.WorkIDs {
+		out[i] = AddTaskItem{WorkID: id}
+	}
+	return out, nil
 }

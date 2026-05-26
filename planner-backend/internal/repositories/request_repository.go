@@ -1,6 +1,8 @@
 package repositories
 
 import (
+	"time"
+
 	"planner-backend/internal/models"
 
 	"gorm.io/gorm"
@@ -60,4 +62,33 @@ func (r *RequestRepository) UpdateTotalHours(requestID uint, total int) error {
 func (r *RequestRepository) UpdateStatus(requestID uint, status string) error {
 	return r.db.Model(&models.Request{}).Where("id = ?", requestID).
 		Update("status", status).Error
+}
+
+func (r *RequestRepository) UpdateDeadline(requestID uint, deadline *time.Time) error {
+	return r.db.Model(&models.Request{}).Where("id = ?", requestID).
+		Update("deadline_at", deadline).Error
+}
+
+func (r *RequestRepository) DeleteByID(id uint) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec(
+			`DELETE FROM task_logs WHERE task_id IN (SELECT id FROM tasks WHERE request_id = ?)`, id,
+		).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("request_id = ?", id).Delete(&models.Task{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("request_id = ?", id).Delete(&models.RequestLog{}).Error; err != nil {
+			return err
+		}
+		result := tx.Delete(&models.Request{}, id)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		return nil
+	})
 }

@@ -14,7 +14,11 @@ OpenAPI, Swagger, Postman
 
 CORS для фронта
 
-Сценарий: admin → customer план → submit → executor статусы → customer отчёт
+Сценарий: admin → customer план (комментарии к задачам, дедлайн) → submit → executor → overdue/продление → отчёт PDF
+
+PDF: internal/services/pdffonts/Arial.ttf (кириллица)
+
+Контуры: любые названия (до 50 символов), admin CRUD
 
 Проверка: scripts/full-checkup.ps1 при запущенном сервере
 

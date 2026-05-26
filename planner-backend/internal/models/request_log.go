@@ -3,9 +3,11 @@ package models
 import "time"
 
 const (
-	RequestLogActionCreated       = "plan_created"
-	RequestLogActionSubmitted     = "plan_submitted"
-	RequestLogActionStatusChanged = "plan_status_changed"
+	RequestLogActionCreated          = "plan_created"
+	RequestLogActionSubmitted        = "plan_submitted"
+	RequestLogActionStatusChanged    = "plan_status_changed"
+	RequestLogActionDeleted          = "plan_deleted"
+	RequestLogActionDeadlineExtended = "deadline_extended"
 )
 
 type RequestLog struct {

@@ -28,7 +28,7 @@ http://localhost:8080/api/openapi.yaml
 Роли
 
 admin — /api/admin/... и журналы GET /api/admin/request-logs, /api/admin/task-logs
-customer — заявки, works, contours, отчёт
+customer — заявки, works, contours, отчёт JSON/PDF (GET /api/requests/:id/report/pdf)
 executor — /api/tasks и просмотр заявки, если есть его задачи
 
 В запросах: Authorization: Bearer и токен после логина.
