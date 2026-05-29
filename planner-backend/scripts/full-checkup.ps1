@@ -26,13 +26,14 @@ function Invoke-Api($Method, $Path, $Body = $null, $Token = $null) {
         $status = if ($resp) { [int]$resp.StatusCode } else { 0 }
         $body = ""
         if ($resp) {
-            $sr = New-Object System.IO.StreamReader($resp.GetResponseStream())
+            $sr = New-Object System.IO.StreamReader($resp.GetResponseStream(), [System.Text.Encoding]::UTF8)
             $body = $sr.ReadToEnd()
             $sr.Close()
         }
         return @{ Ok = $false; Status = $status; Body = $body; Error = $_.Exception.Message }
     }
 }
+
 
 Write-Host "=== Planner Backend Full Checkup ===" -ForegroundColor Cyan
 
@@ -110,13 +111,29 @@ $tasks = (Invoke-Api "GET" "/api/tasks" $null $execTok).Body | ConvertFrom-Json
 $reqTasks = @($tasks | Where-Object { $_.request_id -eq $req.id })
 Record "Executor sees all tasks" ($reqTasks.Count -ge 2) "count=$($reqTasks.Count)"
 
-$claim = Invoke-Api "POST" "/api/requests/$($req.id)/claim" $null $execTok
-$claimed = $claim.Body | ConvertFrom-Json
 $claimOk = $false
-if ($claim.Ok -and $claimed.tasks.Count -ge 2) {
-    $claimOk = ($claimed.tasks | Where-Object { $_.executor.full_name -eq "Исполнителев Тест Тестович" }).Count -ge 2
+$detail = ""
+try {
+    $execMe = Invoke-RestMethod -Uri "$Base/api/me" -Headers @{ Authorization = "Bearer $execTok" }
+    $claimed = Invoke-RestMethod -Uri "$Base/api/requests/$($req.id)/claim" -Method POST -Headers @{
+        Authorization = "Bearer $execTok"
+    }
+    $claimedTasks = @($claimed.tasks)
+    if ($claimed.status -ne "submitted") {
+        $detail = "status=$($claimed.status)"
+    } elseif ($claimedTasks.Count -lt 2) {
+        $detail = "tasks=$($claimedTasks.Count)"
+    } elseif (@($claimedTasks | Where-Object { $_.executor_id -eq $execMe.id }).Count -lt 2) {
+        $detail = "executor_id not set on all tasks"
+    } elseif (-not $execMe.last_name -or -not $execMe.first_name) {
+        $detail = "executor profile missing FIO fields"
+    } else {
+        $claimOk = $true
+    }
+} catch {
+    $detail = $_.ErrorDetails.Message
+    if (-not $detail) { $detail = $_.Exception.Message }
 }
-if (-not $claimOk -and -not $claim.Ok) { $claimOk = $false; $detail = $claim.Body } else { $detail = "" }
 Record "Executor claims request (FIO)" $claimOk $detail
 
 $tid = $reqTasks[0].id
