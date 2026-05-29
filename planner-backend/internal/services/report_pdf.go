@@ -99,6 +99,40 @@ func BuildSummaryReportPDF(summary *SummaryReportResponse) ([]byte, error) {
 		pdfDrawTableRow(pdf, colW, sumAligns, cells, 6, false)
 	}
 
+	if len(summary.Tasks) > 0 {
+		pdf.Ln(6)
+		pdf.SetFont(fontName, "B", 12)
+		pdf.CellFormat(0, 8, "Задачи", "", 1, "L", false, 0, "")
+		pdf.Ln(2)
+
+		taskColW := []float64{12, 30, 34, 34, 18, 12}
+		taskAligns := []string{"C", "L", "L", "L", "C", "C"}
+		taskHeaders := []string{"№", "Заявка", "Работа", "Исполнитель", "Статус", "Часы"}
+		pdf.SetFont(fontName, "B", 9)
+		pdfDrawTableRow(pdf, taskColW, taskAligns, taskHeaders, 6, true)
+
+		pdf.SetFont(fontName, "", 9)
+		for _, t := range summary.Tasks {
+			workName := t.WorkName
+			if workName == "" {
+				workName = "—"
+			}
+			executor := t.ExecutorFullName
+			if executor == "" {
+				executor = "—"
+			}
+			taskCells := []string{
+				fmt.Sprintf("%d", t.RequestID),
+				t.RequestTitle,
+				workName,
+				executor,
+				statusRu(taskStatusRu, t.Status),
+				fmt.Sprintf("%d", t.NormativeHours),
+			}
+			pdfDrawTableRow(pdf, taskColW, taskAligns, taskCells, 6, false)
+		}
+	}
+
 	pdf.Ln(6)
 	pdf.SetFont(fontName, "", 9)
 	pdf.CellFormat(0, 5, fmt.Sprintf("Сформировано: %s", summary.GeneratedAt.Format("02.01.2006 15:04")), "", 1, "R", false, 0, "")
@@ -134,9 +168,9 @@ func BuildReportPDF(report *ReportResponse) ([]byte, error) {
 	pdf.CellFormat(0, 8, "Задачи", "", 1, "L", false, 0, "")
 	pdf.Ln(2)
 
-	colW := []float64{36, 42, 14, 22, 66}
-	aligns := []string{"L", "L", "C", "C", "L"}
-	headers := []string{"Работа", "Описание", "Часы", "Статус", "Комментарий"}
+	colW := []float64{28, 30, 32, 12, 18, 46}
+	aligns := []string{"L", "L", "L", "C", "C", "L"}
+	headers := []string{"Работа", "Описание", "Исполнитель", "Часы", "Статус", "Комментарий"}
 	pdf.SetFont(fontName, "B", 9)
 	pdfDrawTableRow(pdf, colW, aligns, headers, lineH, true)
 
@@ -147,10 +181,15 @@ func BuildReportPDF(report *ReportResponse) ([]byte, error) {
 			name = "—"
 		}
 		desc := t.Description
+		executor := t.ExecutorFullName
+		if executor == "" {
+			executor = "—"
+		}
 		comment := t.CustomerComment
 		cells := []string{
 			name,
 			desc,
+			executor,
 			fmt.Sprintf("%d", t.NormativeHours),
 			statusRu(taskStatusRu, t.Status),
 			comment,

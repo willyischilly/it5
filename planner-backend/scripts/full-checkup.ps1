@@ -104,37 +104,23 @@ Invoke-Api "POST" "/api/requests/$($req.id)/tasks" @{ work_ids = $wids } $custTo
 $dup = Invoke-Api "POST" "/api/requests/$($req.id)/tasks" @{ work_ids = @($works[0].id) } $custTok
 Record "Duplicate work blocked" ($dup.Status -eq 400) "status=$($dup.Status)"
 
+$noExecSubmit = Invoke-Api "POST" "/api/requests/$($req.id)/submit" $null $custTok
+Record "Submit without executors blocked" ($noExecSubmit.Status -eq 400) "status=$($noExecSubmit.Status)"
+
+$execMe = Invoke-RestMethod -Uri "$Base/api/me" -Headers @{ Authorization = "Bearer $execTok" }
+$draftReq = (Invoke-Api "GET" "/api/requests/$($req.id)" $null $custTok).Body | ConvertFrom-Json
+$assignments = @($draftReq.tasks | ForEach-Object { @{ task_id = $_.id; executor_id = $execMe.id } })
+$assigned = (Invoke-Api "PUT" "/api/requests/$($req.id)/tasks/assign" @{ assignments = $assignments } $custTok).Body | ConvertFrom-Json
+$assignedTasks = @($assigned.tasks)
+$assignOk = ($assignedTasks.Count -ge 2) -and (@($assignedTasks | Where-Object { $_.executor_id -eq $execMe.id }).Count -ge 2)
+Record "Customer assigns executors per task" $assignOk "tasks=$($assignedTasks.Count)"
+
 $sub = (Invoke-Api "POST" "/api/requests/$($req.id)/submit" $null $custTok).Body | ConvertFrom-Json
 Record "Submit -> submitted" ($sub.status -eq "submitted") $sub.status
 
 $tasks = (Invoke-Api "GET" "/api/tasks" $null $execTok).Body | ConvertFrom-Json
 $reqTasks = @($tasks | Where-Object { $_.request_id -eq $req.id })
 Record "Executor sees all tasks" ($reqTasks.Count -ge 2) "count=$($reqTasks.Count)"
-
-$claimOk = $false
-$detail = ""
-try {
-    $execMe = Invoke-RestMethod -Uri "$Base/api/me" -Headers @{ Authorization = "Bearer $execTok" }
-    $claimed = Invoke-RestMethod -Uri "$Base/api/requests/$($req.id)/claim" -Method POST -Headers @{
-        Authorization = "Bearer $execTok"
-    }
-    $claimedTasks = @($claimed.tasks)
-    if ($claimed.status -ne "submitted") {
-        $detail = "status=$($claimed.status)"
-    } elseif ($claimedTasks.Count -lt 2) {
-        $detail = "tasks=$($claimedTasks.Count)"
-    } elseif (@($claimedTasks | Where-Object { $_.executor_id -eq $execMe.id }).Count -lt 2) {
-        $detail = "executor_id not set on all tasks"
-    } elseif (-not $execMe.last_name -or -not $execMe.first_name) {
-        $detail = "executor profile missing FIO fields"
-    } else {
-        $claimOk = $true
-    }
-} catch {
-    $detail = $_.ErrorDetails.Message
-    if (-not $detail) { $detail = $_.Exception.Message }
-}
-Record "Executor claims request (FIO)" $claimOk $detail
 
 $tid = $reqTasks[0].id
 Invoke-Api "PUT" "/api/tasks/$tid/status" @{ status = "in_progress" } $execTok | Out-Null

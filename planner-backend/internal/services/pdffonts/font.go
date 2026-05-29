@@ -1,15 +1,43 @@
 package pdffonts
 
 import (
+	_ "embed"
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
+)
+
+//go:embed Arial.ttf
+var arialTTF []byte
+
+var (
+	embeddedPath string
+	embeddedOnce sync.Once
 )
 
 func ArialPath() string {
-	var base string
+	embeddedOnce.Do(func() {
+		if len(arialTTF) == 0 {
+			return
+		}
+		f, err := os.CreateTemp("", "planner-arial-*.ttf")
+		if err != nil {
+			return
+		}
+		if _, err := f.Write(arialTTF); err != nil {
+			_ = f.Close()
+			return
+		}
+		_ = f.Close()
+		embeddedPath = f.Name()
+	})
+	if embeddedPath != "" {
+		return embeddedPath
+	}
+
 	if _, file, _, ok := runtime.Caller(0); ok {
-		base = filepath.Join(filepath.Dir(file), "Arial.ttf")
+		base := filepath.Join(filepath.Dir(file), "Arial.ttf")
 		if _, err := os.Stat(base); err == nil {
 			return base
 		}

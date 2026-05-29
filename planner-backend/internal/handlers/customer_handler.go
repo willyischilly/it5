@@ -38,6 +38,15 @@ func (h *CustomerHandler) ListContours(c *gin.Context) {
 	response.JSON(c, http.StatusOK, contours)
 }
 
+func (h *CustomerHandler) ListExecutors(c *gin.Context) {
+	executors, err := h.customer.ListExecutors()
+	if err != nil {
+		response.Internal(c, err.Error())
+		return
+	}
+	response.JSON(c, http.StatusOK, executors)
+}
+
 func (h *CustomerHandler) CreateRequest(c *gin.Context) {
 	var in services.CreateRequestInput
 	if err := c.ShouldBindJSON(&in); err != nil {
@@ -157,6 +166,47 @@ func (h *CustomerHandler) DeleteTask(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+func (h *CustomerHandler) AssignTaskExecutor(c *gin.Context) {
+	requestID, ok := parseRequestID(c)
+	if !ok {
+		return
+	}
+	taskID, err := strconv.ParseUint(c.Param("task_id"), 10, 32)
+	if err != nil {
+		response.BadRequest(c, "invalid task id")
+		return
+	}
+	var in services.AssignTaskInput
+	if err := c.ShouldBindJSON(&in); err != nil {
+		response.BadRequest(c, "invalid request body")
+		return
+	}
+	req, err := h.customer.AssignTaskExecutor(middleware.GetUserID(c), requestID, uint(taskID), in)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.JSON(c, http.StatusOK, req)
+}
+
+func (h *CustomerHandler) AssignExecutors(c *gin.Context) {
+	requestID, ok := parseRequestID(c)
+	if !ok {
+		return
+	}
+	var in services.AssignExecutorsInput
+	if err := c.ShouldBindJSON(&in); err != nil {
+		response.BadRequest(c, "invalid request body")
+		return
+	}
+	req, err := h.customer.AssignExecutors(middleware.GetUserID(c), requestID, in)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.JSON(c, http.StatusOK, req)
+}
+
 func (h *CustomerHandler) Submit(c *gin.Context) {
 	requestID, ok := parseRequestID(c)
 	if !ok {
@@ -175,9 +225,11 @@ func (h *CustomerHandler) GetReport(c *gin.Context) {
 	if !ok {
 		return
 	}
-	report, err := h.customer.GetReport(middleware.GetUserID(c), requestID)
+	report, err := h.customer.GetReportForUser(
+		middleware.GetUserID(c), middleware.GetUserRole(c), requestID,
+	)
 	if err != nil {
-		response.NotFound(c, err.Error())
+		notFoundOrInternal(c, err)
 		return
 	}
 
@@ -194,9 +246,11 @@ func (h *CustomerHandler) GetReportPDF(c *gin.Context) {
 	if !ok {
 		return
 	}
-	report, err := h.customer.GetReport(middleware.GetUserID(c), requestID)
+	report, err := h.customer.GetReportForUser(
+		middleware.GetUserID(c), middleware.GetUserRole(c), requestID,
+	)
 	if err != nil {
-		response.NotFound(c, err.Error())
+		notFoundOrInternal(c, err)
 		return
 	}
 	h.writeReportPDF(c, report)
@@ -214,7 +268,9 @@ func (h *CustomerHandler) writeReportPDF(c *gin.Context, report *services.Report
 }
 
 func (h *CustomerHandler) GetAllReportsSummary(c *gin.Context) {
-	summary, err := h.customer.GetAllReportsSummary(middleware.GetUserID(c))
+	summary, err := h.customer.GetAllReportsSummaryForUser(
+		middleware.GetUserID(c), middleware.GetUserRole(c),
+	)
 	if err != nil {
 		response.Internal(c, err.Error())
 		return
@@ -227,7 +283,9 @@ func (h *CustomerHandler) GetAllReportsSummary(c *gin.Context) {
 }
 
 func (h *CustomerHandler) GetAllReportsSummaryPDF(c *gin.Context) {
-	summary, err := h.customer.GetAllReportsSummary(middleware.GetUserID(c))
+	summary, err := h.customer.GetAllReportsSummaryForUser(
+		middleware.GetUserID(c), middleware.GetUserRole(c),
+	)
 	if err != nil {
 		response.Internal(c, err.Error())
 		return

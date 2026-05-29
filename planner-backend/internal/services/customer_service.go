@@ -58,8 +58,22 @@ type ExtendDeadlineInput struct {
 }
 
 type AddTaskItem struct {
-	WorkID  uint   `json:"work_id"`
-	Comment string `json:"comment"`
+	WorkID     uint   `json:"work_id"`
+	Comment    string `json:"comment"`
+	ExecutorID *uint  `json:"executor_id,omitempty"`
+}
+
+type AssignTaskInput struct {
+	ExecutorID uint `json:"executor_id"`
+}
+
+type AssignTaskItem struct {
+	TaskID     uint `json:"task_id"`
+	ExecutorID uint `json:"executor_id"`
+}
+
+type AssignExecutorsInput struct {
+	Assignments []AssignTaskItem `json:"assignments"`
 }
 
 func (s *CustomerService) CreateRequest(customerID uint, in CreateRequestInput) (*models.Request, error) {
@@ -249,12 +263,19 @@ func (s *CustomerService) AddTasks(customerID, requestID uint, in AddTasksInput)
 
 	newTasks := make([]models.Task, 0, len(items))
 	for _, it := range items {
-		newTasks = append(newTasks, models.Task{
+		task := models.Task{
 			RequestID:       requestID,
 			WorkID:          it.WorkID,
 			Status:          models.TaskStatusPending,
 			CustomerComment: strings.TrimSpace(it.Comment),
-		})
+		}
+		if it.ExecutorID != nil {
+			if err := s.validateExecutorID(*it.ExecutorID); err != nil {
+				return nil, err
+			}
+			task.ExecutorID = it.ExecutorID
+		}
+		newTasks = append(newTasks, task)
 	}
 	if err := s.tasks.CreateBatch(newTasks); err != nil {
 		return nil, err
@@ -340,6 +361,12 @@ func (s *CustomerService) Submit(customerID, requestID uint) (*models.Request, e
 		return nil, err
 	}
 
+	for _, t := range tasks {
+		if t.ExecutorID == nil {
+			return nil, errors.New("all tasks must have an assigned executor before submit")
+		}
+	}
+
 	oldStatus := req.Status
 	newStatus := models.RequestStatusSubmitted
 	if err := s.requests.UpdateStatus(requestID, newStatus); err != nil {
@@ -353,11 +380,12 @@ func (s *CustomerService) Submit(customerID, requestID uint) (*models.Request, e
 }
 
 type ReportTask struct {
-	Name            string `json:"name"`
-	Description     string `json:"description,omitempty"`
-	NormativeHours  int    `json:"normative_hours"`
-	Status          string `json:"status"`
-	CustomerComment string `json:"customer_comment,omitempty"`
+	Name             string `json:"name"`
+	Description      string `json:"description,omitempty"`
+	ExecutorFullName string `json:"executor_full_name,omitempty"`
+	NormativeHours   int    `json:"normative_hours"`
+	Status           string `json:"status"`
+	CustomerComment  string `json:"customer_comment,omitempty"`
 }
 
 type ReportResponse struct {
@@ -375,11 +403,35 @@ type ReportResponse struct {
 }
 
 func (s *CustomerService) GetReport(customerID, requestID uint) (*ReportResponse, error) {
-	req, err := s.refreshRequest(customerID, requestID)
+	return s.GetReportForUser(customerID, models.RoleCustomer, requestID)
+}
+
+func (s *CustomerService) GetReportForUser(userID uint, role string, requestID uint) (*ReportResponse, error) {
+	req, err := s.loadRequestForReport(userID, role, requestID)
 	if err != nil {
 		return nil, err
 	}
+	return buildReportResponse(req), nil
+}
 
+func (s *CustomerService) loadRequestForReport(userID uint, role string, requestID uint) (*models.Request, error) {
+	if role == models.RoleAdmin {
+		req, err := s.requests.FindByID(requestID)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, errors.New("request not found")
+			}
+			return nil, err
+		}
+		if err := s.applyOverdueIfNeeded(req); err != nil {
+			return nil, err
+		}
+		return s.requests.FindByID(requestID)
+	}
+	return s.refreshRequest(userID, requestID)
+}
+
+func buildReportResponse(req *models.Request) *ReportResponse {
 	reportTasks := make([]ReportTask, 0, len(req.Tasks))
 	completed := 0
 	completedHours := 0
@@ -393,7 +445,8 @@ func (s *CustomerService) GetReport(customerID, requestID uint) (*ReportResponse
 			hours = t.Work.NormativeHours
 		}
 		reportTasks = append(reportTasks, ReportTask{
-			Name: name, Description: desc, NormativeHours: hours, Status: t.Status,
+			Name: name, Description: desc, ExecutorFullName: taskExecutorFullName(t),
+			NormativeHours: hours, Status: t.Status,
 			CustomerComment: t.CustomerComment,
 		})
 		if t.Status == models.TaskStatusCompleted {
@@ -419,7 +472,7 @@ func (s *CustomerService) GetReport(customerID, requestID uint) (*ReportResponse
 		CompletedTasks: completed,
 		TotalHours:     req.TotalHours,
 		CompletedHours: completedHours,
-	}, nil
+	}
 }
 
 func (s *CustomerService) ListWorks() ([]models.Work, error) {
@@ -428,6 +481,95 @@ func (s *CustomerService) ListWorks() ([]models.Work, error) {
 
 func (s *CustomerService) ListContours() ([]models.DeploymentContour, error) {
 	return s.contours.List()
+}
+
+func (s *CustomerService) ListExecutors() ([]UserResponse, error) {
+	users, err := s.users.ListByRole(models.RoleExecutor)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]UserResponse, len(users))
+	for i := range users {
+		out[i] = ToUserResponse(&users[i])
+	}
+	return out, nil
+}
+
+func (s *CustomerService) AssignTaskExecutor(customerID, requestID, taskID uint, in AssignTaskInput) (*models.Request, error) {
+	if in.ExecutorID == 0 {
+		return nil, errors.New("executor_id is required")
+	}
+	if err := s.validateExecutorID(in.ExecutorID); err != nil {
+		return nil, err
+	}
+	req, err := s.getDraftOrOwned(customerID, requestID)
+	if err != nil {
+		return nil, err
+	}
+	if !models.CanEditPlan(req) {
+		return nil, errors.New("can only assign executors while request is in draft")
+	}
+	task, err := s.tasks.FindByRequestAndID(requestID, taskID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("task not found")
+		}
+		return nil, err
+	}
+	if err := s.tasks.AssignExecutor(task.ID, in.ExecutorID); err != nil {
+		return nil, err
+	}
+	_ = s.audit.LogRequest(requestID, customerID, models.RequestLogActionTaskAssigned, nil, nil,
+		fmt.Sprintf("task=%d executor=%d", taskID, in.ExecutorID))
+	return s.requests.FindByIDAndCustomer(requestID, customerID)
+}
+
+func (s *CustomerService) AssignExecutors(customerID, requestID uint, in AssignExecutorsInput) (*models.Request, error) {
+	if len(in.Assignments) == 0 {
+		return nil, errors.New("assignments is required")
+	}
+	req, err := s.getDraftOrOwned(customerID, requestID)
+	if err != nil {
+		return nil, err
+	}
+	if !models.CanEditPlan(req) {
+		return nil, errors.New("can only assign executors while request is in draft")
+	}
+	for _, a := range in.Assignments {
+		if a.TaskID == 0 || a.ExecutorID == 0 {
+			return nil, errors.New("task_id and executor_id are required for each assignment")
+		}
+		if err := s.validateExecutorID(a.ExecutorID); err != nil {
+			return nil, err
+		}
+		task, err := s.tasks.FindByRequestAndID(requestID, a.TaskID)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, fmt.Errorf("task %d not found in request", a.TaskID)
+			}
+			return nil, err
+		}
+		if err := s.tasks.AssignExecutor(task.ID, a.ExecutorID); err != nil {
+			return nil, err
+		}
+	}
+	_ = s.audit.LogRequest(requestID, customerID, models.RequestLogActionTaskAssigned, nil, nil,
+		fmt.Sprintf("tasks=%d", len(in.Assignments)))
+	return s.requests.FindByIDAndCustomer(requestID, customerID)
+}
+
+func (s *CustomerService) validateExecutorID(executorID uint) error {
+	user, err := s.users.FindByID(executorID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return errors.New("executor not found")
+		}
+		return err
+	}
+	if user.Role != models.RoleExecutor {
+		return errors.New("user is not an executor")
+	}
+	return nil
 }
 
 func dedupeUints(ids []uint) []uint {

@@ -8,7 +8,7 @@ const (
 	RequestLogActionStatusChanged    = "plan_status_changed"
 	RequestLogActionDeleted          = "plan_deleted"
 	RequestLogActionDeadlineExtended = "deadline_extended"
-	RequestLogActionClaimed          = "plan_claimed"
+	RequestLogActionTaskAssigned     = "task_assigned"
 )
 
 type RequestLog struct {

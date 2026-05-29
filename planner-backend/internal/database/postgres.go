@@ -1,6 +1,7 @@
 package database
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -89,13 +90,28 @@ func ensureDatabase(cfg *config.Config) error {
 }
 
 func seedContours(db *gorm.DB) {
-	names := []string{"Dev", "Qa", "Uat", "Prod"}
-	for _, name := range names {
-		var count int64
-		db.Model(&models.DeploymentContour{}).Where("name = ?", name).Count(&count)
-		if count == 0 {
-			if err := db.Create(&models.DeploymentContour{Name: name}).Error; err != nil {
-				log.Printf("seed contour %s: %v", name, err)
+	seed := []models.DeploymentContour{
+		{Name: "Dev", Description: "Контур разработки"},
+		{Name: "Qa", Description: "Контур тестирования"},
+		{Name: "Uat", Description: "Приёмочное тестирование"},
+		{Name: "Prod", Description: "Промышленная эксплуатация"},
+	}
+	for _, c := range seed {
+		var existing models.DeploymentContour
+		err := db.Where("name = ?", c.Name).First(&existing).Error
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				if err := db.Create(&c).Error; err != nil {
+					log.Printf("seed contour %s: %v", c.Name, err)
+				}
+			} else {
+				log.Printf("seed contour %s: %v", c.Name, err)
+			}
+			continue
+		}
+		if strings.TrimSpace(existing.Description) == "" && strings.TrimSpace(c.Description) != "" {
+			if err := db.Model(&existing).Update("description", c.Description).Error; err != nil {
+				log.Printf("seed contour description %s: %v", c.Name, err)
 			}
 		}
 	}

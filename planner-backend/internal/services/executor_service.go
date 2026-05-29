@@ -2,7 +2,6 @@ package services
 
 import (
 	"errors"
-	"fmt"
 	"log"
 	"time"
 
@@ -15,17 +14,15 @@ import (
 type ExecutorService struct {
 	tasks    *repositories.TaskRepository
 	requests *repositories.RequestRepository
-	users    *repositories.UserRepository
 	audit    *AuditService
 }
 
 func NewExecutorService(
 	tasks *repositories.TaskRepository,
 	requests *repositories.RequestRepository,
-	users *repositories.UserRepository,
 	audit *AuditService,
 ) *ExecutorService {
-	return &ExecutorService{tasks: tasks, requests: requests, users: users, audit: audit}
+	return &ExecutorService{tasks: tasks, requests: requests, audit: audit}
 }
 
 func (s *ExecutorService) ListRequests() ([]models.Request, error) {
@@ -56,67 +53,6 @@ func (s *ExecutorService) GetTask(taskID uint) (*models.Task, error) {
 		return nil, err
 	}
 	return task, nil
-}
-
-func (s *ExecutorService) ClaimRequest(executorID, requestID uint) (*models.Request, error) {
-	executor, err := s.users.FindByID(executorID)
-	if err != nil {
-		return nil, errors.New("executor not found")
-	}
-	if executor.Role != models.RoleExecutor {
-		return nil, errors.New("only executors can claim requests")
-	}
-
-	req, err := s.requests.FindByIDVisibleToExecutor(requestID)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("request not found")
-		}
-		return nil, err
-	}
-
-	if req.Status != models.RequestStatusSubmitted {
-		return nil, errors.New("request can only be claimed when status is submitted (tasks in plans)")
-	}
-
-	nonPending, err := s.tasks.CountNonPending(requestID)
-	if err != nil {
-		return nil, err
-	}
-	if nonPending > 0 {
-		return nil, errors.New("all tasks must be in pending status to claim")
-	}
-
-	assignedOther, err := s.tasks.CountAssignedToOther(requestID, executorID)
-	if err != nil {
-		return nil, err
-	}
-	if assignedOther > 0 {
-		return nil, errors.New("request already has tasks assigned to another executor")
-	}
-
-	unassigned, err := s.tasks.CountPendingUnassigned(requestID)
-	if err != nil {
-		return nil, err
-	}
-	if unassigned == 0 {
-		return nil, errors.New("no unassigned pending tasks to claim")
-	}
-
-	rows, err := s.tasks.ClaimPendingTasks(requestID, executorID)
-	if err != nil {
-		return nil, err
-	}
-	if rows == 0 {
-		return nil, errors.New("failed to claim request")
-	}
-
-	fullName := executor.FullName()
-	_ = s.audit.LogRequest(requestID, executorID, models.RequestLogActionClaimed, nil, nil,
-		fmt.Sprintf("executor=%s tasks=%d", fullName, rows))
-	log.Printf("[audit] request=%d claimed by %s (%d tasks)", requestID, fullName, rows)
-
-	return s.requests.FindByIDVisibleToExecutor(requestID)
 }
 
 type UpdateStatusInput struct {

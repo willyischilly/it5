@@ -46,16 +46,16 @@ admin123456
 
 Что уже есть в базе
 
-Четыре контура: Dev, Qa, Uat, Prod — GET /api/contours под токеном customer.
+Четыре контура: Dev, Qa, Uat, Prod — GET /api/contours (customer и executor). У каждого контура есть description; админ задаёт при POST/PUT /api/admin/contours.
 Семь работ в справочнике — GET /api/works (customer) или /api/admin/works (admin).
 
 Кто куда ходит
 
 Публично: register, login. С токеном: GET /api/me.
 
-admin — /api/admin/users, works (название, **description** — описание работы в справочнике, нормочасы), contours, request-logs, task-logs. Описание задачи в заявке = `work.description` из справочника: PUT /api/admin/works/:id с полем `description`.
-customer — /api/requests, works, contours, отчёт
-executor — GET /api/requests (все заявки с задачами), GET /api/tasks (все задачи), POST /api/requests/:id/claim (занять заявку «в планах»), PUT /api/tasks/:id/status (только свои назначенные), GET /api/requests/:id
+admin — /api/admin/users, works (название, **description** — описание работы в справочнике, нормочасы), contours (name, **description**), request-logs, task-logs. Описание задачи в заявке = `work.description` из справочника: PUT /api/admin/works/:id с полем `description`.
+customer — /api/requests, works, contours, GET /api/executors, назначение исполнителей, отчёт
+executor — GET /api/requests (все заявки с задачами), GET /api/contours, GET /api/tasks (все задачи), PUT /api/tasks/:id/status (только свои назначенные), GET /api/requests/:id
 
 Как обычно строить экраны
 
@@ -63,13 +63,18 @@ executor — GET /api/requests (все заявки с задачами), GET /a
 
 Удаление заявки DELETE /api/requests/:id — в черновике (draft) или когда заявка отправлена (submitted) и все задачи ещё pending («в планах»).
 
-Добавление работ POST /api/requests/:id/tasks — только в черновике. Тело tasks: [{ work_id, comment }] или work_ids: [1,2].
+Добавление работ POST /api/requests/:id/tasks — только в черновике. Тело tasks: [{ work_id, comment, executor_id? }] или work_ids: [1,2]. Исполнителя можно указать сразу или позже.
+
+Назначение исполнителей (только черновик):
+- PUT /api/requests/:id/tasks/:task_id/assign — тело { executor_id }
+- PUT /api/requests/:id/tasks/assign — тело { assignments: [{ task_id, executor_id }, ...] }
+- GET /api/executors — список исполнителей для выбора
 
 Удаление задачи DELETE /api/requests/:id/tasks/:task_id — в черновике или если у задачи статус pending (в планах), пока заявка не completed/overdue.
 
-Отправка POST /api/requests/:id/submit. Если дедлайн прошёл — статус overdue, продление POST /api/requests/:id/extend-deadline с новым deadline_at.
+Отправка POST /api/requests/:id/submit — только если у каждой задачи назначен executor_id. Если дедлайн прошёл — статус overdue, продление POST /api/requests/:id/extend-deadline с новым deadline_at.
 
-Исполнитель видит все заявки GET /api/requests и все задачи GET /api/tasks. После submit заказчиком заявка в статусе submitted, задачи pending без исполнителя. Исполнитель занимает заявку POST /api/requests/:id/claim — все задачи «в планах» назначаются ему (в ответе у задачи executor с full_name). Далее PUT /api/tasks/:id/status: in_progress, затем completed (только по своим задачам).
+Исполнитель видит все заявки GET /api/requests, контуры GET /api/contours и все задачи GET /api/tasks. После submit заказчиком задачи уже назначены исполнителям (в ответе у задачи executor с full_name). PUT /api/tasks/:id/status: in_progress, затем completed (только по своим задачам).
 
 Заказчик смотрит GET /api/requests/:id и отчёты:
 
@@ -83,8 +88,6 @@ executor — GET /api/requests (все заявки с задачами), GET /a
 
 Статусы заявки: draft, submitted, in_progress, completed, overdue.
 Статусы задачи: pending, in_progress, completed. Перескакивать нельзя.
-
-После submit задачи разъезжаются по исполнителям по кругу, если их несколько.
 
 Ошибки приходят JSON с полем error. Коды как обычно: 400, 401, 403, 404.
 

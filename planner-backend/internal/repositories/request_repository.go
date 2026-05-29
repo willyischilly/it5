@@ -43,8 +43,16 @@ func (r *RequestRepository) FindByIDAndCustomer(id, customerID uint) (*models.Re
 
 func (r *RequestRepository) ListByCustomer(customerID uint) ([]models.Request, error) {
 	var requests []models.Request
-	err := r.db.Preload("Contour").Preload("Tasks.Work").
+	err := r.db.Preload("Contour").Preload("Tasks.Work").Preload("Tasks.Executor").
 		Where("customer_id = ?", customerID).
+		Order("id DESC").
+		Find(&requests).Error
+	return requests, err
+}
+
+func (r *RequestRepository) ListAll() ([]models.Request, error) {
+	var requests []models.Request
+	err := r.db.Preload("Contour").Preload("Tasks.Work").Preload("Tasks.Executor").
 		Order("id DESC").
 		Find(&requests).Error
 	return requests, err

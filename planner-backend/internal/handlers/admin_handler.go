@@ -143,7 +143,7 @@ func (h *AdminHandler) ListContours(c *gin.Context) {
 }
 
 func (h *AdminHandler) CreateContour(c *gin.Context) {
-	var in services.ContourInput
+	var in services.CreateContourInput
 	if err := c.ShouldBindJSON(&in); err != nil {
 		response.BadRequest(c, "invalid request body")
 		return
@@ -161,7 +161,7 @@ func (h *AdminHandler) UpdateContour(c *gin.Context) {
 	if !ok {
 		return
 	}
-	var in services.ContourInput
+	var in services.UpdateContourInput
 	if err := c.ShouldBindJSON(&in); err != nil {
 		response.BadRequest(c, "invalid request body")
 		return

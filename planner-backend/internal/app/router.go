@@ -26,7 +26,7 @@ func NewRouter(cfg *config.Config, db *gorm.DB) (*gin.Engine, *services.AuthServ
 	auditSvc := services.NewAuditService(requestLogRepo)
 	adminSvc := services.NewAdminService(userRepo, workRepo, contourRepo, taskRepo, requestLogRepo)
 	customerSvc := services.NewCustomerService(requestRepo, taskRepo, workRepo, contourRepo, userRepo, auditSvc)
-	executorSvc := services.NewExecutorService(taskRepo, requestRepo, userRepo, auditSvc)
+	executorSvc := services.NewExecutorService(taskRepo, requestRepo, auditSvc)
 
 	authHandler := handlers.NewAuthHandler(authSvc)
 	adminHandler := handlers.NewAdminHandler(adminSvc)
@@ -58,29 +58,39 @@ func NewRouter(cfg *config.Config, db *gorm.DB) (*gin.Engine, *services.AuthServ
 			middleware.RequireAnyRole(models.RoleCustomer, models.RoleExecutor),
 			requestHandler.GetRequest,
 		)
+		protected.GET("/contours",
+			middleware.RequireAnyRole(models.RoleCustomer, models.RoleExecutor),
+			customerHandler.ListContours,
+		)
+
+		reports := protected.Group("")
+		reports.Use(middleware.RequireAnyRole(models.RoleCustomer, models.RoleAdmin))
+		{
+			reports.GET("/requests/reports/summary", customerHandler.GetAllReportsSummary)
+			reports.GET("/requests/reports/summary/pdf", customerHandler.GetAllReportsSummaryPDF)
+			reports.GET("/requests/:id/report", customerHandler.GetReport)
+			reports.GET("/requests/:id/report/pdf", customerHandler.GetReportPDF)
+		}
 
 		customer := protected.Group("")
 		customer.Use(middleware.RequireRole(models.RoleCustomer))
 		{
 			customer.GET("/works", customerHandler.ListWorks)
-			customer.GET("/contours", customerHandler.ListContours)
+			customer.GET("/executors", customerHandler.ListExecutors)
 			customer.POST("/requests", customerHandler.CreateRequest)
-			customer.GET("/requests/reports/summary", customerHandler.GetAllReportsSummary)
-			customer.GET("/requests/reports/summary/pdf", customerHandler.GetAllReportsSummaryPDF)
 			customer.PUT("/requests/:id", customerHandler.UpdateRequest)
 			customer.DELETE("/requests/:id", customerHandler.DeleteRequest)
 			customer.POST("/requests/:id/extend-deadline", customerHandler.ExtendDeadline)
 			customer.POST("/requests/:id/tasks", customerHandler.AddTasks)
+			customer.PUT("/requests/:id/tasks/assign", customerHandler.AssignExecutors)
+			customer.PUT("/requests/:id/tasks/:task_id/assign", customerHandler.AssignTaskExecutor)
 			customer.DELETE("/requests/:id/tasks/:task_id", customerHandler.DeleteTask)
 			customer.POST("/requests/:id/submit", customerHandler.Submit)
-			customer.GET("/requests/:id/report", customerHandler.GetReport)
-			customer.GET("/requests/:id/report/pdf", customerHandler.GetReportPDF)
 		}
 
 		executor := protected.Group("")
 		executor.Use(middleware.RequireRole(models.RoleExecutor))
 		{
-			executor.POST("/requests/:id/claim", executorHandler.ClaimRequest)
 			executor.GET("/tasks", executorHandler.ListTasks)
 			executor.GET("/tasks/:id", executorHandler.GetTask)
 			executor.PUT("/tasks/:id/status", executorHandler.UpdateStatus)

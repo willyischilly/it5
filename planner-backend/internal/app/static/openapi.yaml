@@ -70,11 +70,42 @@ components:
           description: Опциональный дедлайн всей заявки (ISO 8601)
     AddTasksBody:
       type: object
-      required: [work_ids]
       properties:
         work_ids:
           type: array
           items: { type: integer }
+        tasks:
+          type: array
+          items:
+            type: object
+            required: [work_id]
+            properties:
+              work_id: { type: integer }
+              comment: { type: string }
+              executor_id: { type: integer, description: Опционально при добавлении в черновик }
+    Contour:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        description: { type: string }
+    AssignTaskBody:
+      type: object
+      required: [executor_id]
+      properties:
+        executor_id: { type: integer }
+    AssignExecutorsBody:
+      type: object
+      required: [assignments]
+      properties:
+        assignments:
+          type: array
+          items:
+            type: object
+            required: [task_id, executor_id]
+            properties:
+              task_id: { type: integer }
+              executor_id: { type: integer }
     TaskStatusBody:
       type: object
       required: [status]
@@ -154,11 +185,28 @@ paths:
           description: OK
   /contours:
     get:
-      tags: [Customer]
-      summary: Список контуров
+      tags: [Customer, Executor]
+      summary: Список контуров с описаниями
       responses:
         '200':
           description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Contour' }
+  /executors:
+    get:
+      tags: [Customer]
+      summary: Список исполнителей (для назначения на задачи)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/User' }
   /requests:
     get:
       tags: [Customer, Executor]
@@ -287,20 +335,48 @@ paths:
               schema:
                 type: string
                 format: binary
-  /requests/{id}/claim:
-    post:
-      tags: [Executor]
-      summary: Занять заявку (все задачи «в планах» назначаются исполнителю по ФИО)
+  /requests/{id}/tasks/assign:
+    put:
+      tags: [Customer]
+      summary: Назначить исполнителей на несколько задач (только черновик)
       parameters:
         - name: id
           in: path
           required: true
           schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AssignExecutorsBody' }
       responses:
         '200':
-          description: Заявка с назначенными задачами
+          description: Заявка с обновлёнными задачами
         '400':
-          description: Нельзя занять (уже занята, не submitted и т.д.)
+          description: Ошибка валидации
+  /requests/{id}/tasks/{task_id}/assign:
+    put:
+      tags: [Customer]
+      summary: Назначить исполнителя на задачу (только черновик)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: task_id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AssignTaskBody' }
+      responses:
+        '200':
+          description: Заявка с обновлённой задачей
+        '400':
+          description: Ошибка валидации
   /tasks:
     get:
       tags: [Executor]

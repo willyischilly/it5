@@ -161,6 +161,31 @@ func TestFullCaseScenario(t *testing.T) {
 	if len(contours) < 4 {
 		t.Fatalf("expected 4 contours, got %d", len(contours))
 	}
+	if contours[0].Description == "" {
+		t.Fatalf("contour should have description")
+	}
+
+	resp, data = api("GET", "/api/contours", nil, execToken)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("executor contours: %d %s", resp.StatusCode, data)
+	}
+
+	var execUser struct {
+		ID uint `json:"id"`
+	}
+	resp, data = api("GET", "/api/me", nil, execToken)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("executor me: %d %s", resp.StatusCode, data)
+	}
+	_ = json.Unmarshal(data, &execUser)
+	if execUser.ID == 0 {
+		t.Fatalf("executor id missing")
+	}
+
+	resp, data = api("GET", "/api/executors", nil, custToken)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("executors list: %d %s", resp.StatusCode, data)
+	}
 
 	resp, data = api("POST", "/api/requests", map[string]interface{}{
 		"title": "Test deployment", "contour_id": contours[0].ID,
@@ -194,6 +219,36 @@ func TestFullCaseScenario(t *testing.T) {
 	}
 
 	resp, data = api("POST", fmt.Sprintf("/api/requests/%d/submit", req.ID), nil, custToken)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("submit without executors should fail, got %d %s", resp.StatusCode, data)
+	}
+
+	resp, data = api("GET", fmt.Sprintf("/api/requests/%d", req.ID), nil, custToken)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("get draft request: %d %s", resp.StatusCode, data)
+	}
+	var draftReq models.Request
+	_ = json.Unmarshal(data, &draftReq)
+	assignments := make([]map[string]uint, 0, len(draftReq.Tasks))
+	for _, tk := range draftReq.Tasks {
+		assignments = append(assignments, map[string]uint{
+			"task_id": tk.ID, "executor_id": execUser.ID,
+		})
+	}
+	resp, data = api("PUT", fmt.Sprintf("/api/requests/%d/tasks/assign", req.ID), map[string]interface{}{
+		"assignments": assignments,
+	}, custToken)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("assign executors: %d %s", resp.StatusCode, data)
+	}
+	_ = json.Unmarshal(data, &draftReq)
+	for _, tk := range draftReq.Tasks {
+		if tk.Executor == nil || tk.Executor.FullName() != "Исполнителев Тест Тестович" {
+			t.Fatalf("task should be assigned to executor FIO, got %+v", tk.Executor)
+		}
+	}
+
+	resp, data = api("POST", fmt.Sprintf("/api/requests/%d/submit", req.ID), nil, custToken)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("submit: %d %s", resp.StatusCode, data)
 	}
@@ -216,27 +271,6 @@ func TestFullCaseScenario(t *testing.T) {
 	_ = json.Unmarshal(data, &tasks)
 	if len(tasks) < 2 {
 		t.Fatalf("executor should see >=2 tasks, got %d", len(tasks))
-	}
-
-	resp, data = api("PUT", fmt.Sprintf("/api/tasks/%d/status", tasks[0].ID), map[string]string{
-		"status": "in_progress",
-	}, execToken)
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("status update before claim should fail, got %d %s", resp.StatusCode, data)
-	}
-
-	resp, data = api("POST", fmt.Sprintf("/api/requests/%d/claim", req.ID), nil, execToken)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("claim request: %d %s", resp.StatusCode, data)
-	}
-	_ = json.Unmarshal(data, &req)
-	if len(req.Tasks) < 2 {
-		t.Fatalf("claimed request should have tasks")
-	}
-	for _, tk := range req.Tasks {
-		if tk.Executor == nil || tk.Executor.FullName() != "Исполнителев Тест Тестович" {
-			t.Fatalf("task should be assigned to executor FIO, got %+v", tk.Executor)
-		}
 	}
 
 	taskID := tasks[0].ID
@@ -280,6 +314,20 @@ func TestFullCaseScenario(t *testing.T) {
 	resp, data = api("GET", fmt.Sprintf("/api/requests/%d/report?format=json", req.ID), nil, custToken)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("report json: %d %s", resp.StatusCode, data)
+	}
+	var report struct {
+		Tasks []struct {
+			ExecutorFullName string `json:"executor_full_name"`
+		} `json:"tasks"`
+	}
+	_ = json.Unmarshal(data, &report)
+	if len(report.Tasks) == 0 || report.Tasks[0].ExecutorFullName == "" {
+		t.Fatalf("report should include executor_full_name, got %+v", report.Tasks)
+	}
+
+	resp, data = api("GET", fmt.Sprintf("/api/requests/%d/report/pdf", req.ID), nil, adminToken)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("admin report pdf: %d %s", resp.StatusCode, data)
 	}
 
 	resp, data = api("GET", fmt.Sprintf("/api/requests/%d/report?format=pdf", req.ID), nil, custToken)

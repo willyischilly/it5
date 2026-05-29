@@ -19,19 +19,6 @@ func NewExecutorHandler(executor *services.ExecutorService) *ExecutorHandler {
 	return &ExecutorHandler{executor: executor}
 }
 
-func (h *ExecutorHandler) ClaimRequest(c *gin.Context) {
-	requestID, ok := parseRequestID(c)
-	if !ok {
-		return
-	}
-	req, err := h.executor.ClaimRequest(middleware.GetUserID(c), requestID)
-	if err != nil {
-		response.BadRequest(c, err.Error())
-		return
-	}
-	response.JSON(c, http.StatusOK, req)
-}
-
 func (h *ExecutorHandler) ListTasks(c *gin.Context) {
 	tasks, err := h.executor.ListTasks()
 	if err != nil {

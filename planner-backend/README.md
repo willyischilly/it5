@@ -23,13 +23,23 @@ http://localhost:8080/api/openapi.yaml
 
 Проверить API целиком (сервер уже должен работать): scripts\full-checkup.ps1
 
+Демо-заявки и тестовые пользователи (сервер + Postgres должны быть запущены):
+
+```
+go run ./scripts/seed-demo
+```
+
+Создаёт demo.customer@planner.local, двух исполнителей и три заявки. Пароль: demo123456.
+
+Требования: Go 1.21+, PostgreSQL (порт 5432). Перед запуском убедитесь, что служба Postgres работает (например postgresql-x64-18).
+
 База planner и таблицы создаются при первом запуске. Подтягиваются контуры Dev/Qa/Uat/Prod, семь работ в справочнике и admin, если его ещё нет.
 
 Роли
 
 admin — /api/admin/... и журналы GET /api/admin/request-logs, /api/admin/task-logs
-customer — заявки, works, contours, отчёт JSON/PDF (GET /api/requests/:id/report/pdf)
-executor — /api/requests, /api/tasks, POST /api/requests/:id/claim, смена статуса своих задач
+customer — заявки, works, contours, GET /api/executors, назначение исполнителей на задачи, отчёт JSON/PDF (GET /api/requests/:id/report/pdf)
+executor — /api/requests, /api/contours, /api/tasks, смена статуса своих назначенных задач
 
 В запросах: Authorization: Bearer и токен после логина.
 

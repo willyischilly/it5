@@ -1,10 +1,22 @@
 package services
 
 import (
+	"strings"
 	"time"
 
 	"planner-backend/internal/models"
 )
+
+func taskExecutorFullName(t models.Task) string {
+	if t.Executor == nil {
+		return "—"
+	}
+	name := strings.TrimSpace(t.Executor.FullName())
+	if name == "" {
+		return "—"
+	}
+	return name
+}
 
 type RequestSummaryRow struct {
 	RequestID      uint       `json:"request_id"`
@@ -17,6 +29,15 @@ type RequestSummaryRow struct {
 	CompletedTasks int        `json:"completed_tasks"`
 	TotalHours     int        `json:"total_hours"`
 	CompletedHours int        `json:"completed_hours"`
+}
+
+type SummaryTaskRow struct {
+	RequestID        uint   `json:"request_id"`
+	RequestTitle     string `json:"request_title"`
+	WorkName         string `json:"work_name"`
+	ExecutorFullName string `json:"executor_full_name,omitempty"`
+	Status           string `json:"status"`
+	NormativeHours   int    `json:"normative_hours"`
 }
 
 type SummaryReportResponse struct {
@@ -32,6 +53,7 @@ type SummaryReportResponse struct {
 	TotalHours         int                 `json:"total_hours"`
 	CompletedHours     int                 `json:"completed_hours"`
 	Requests           []RequestSummaryRow `json:"requests"`
+	Tasks              []SummaryTaskRow    `json:"tasks"`
 }
 
 func taskStats(tasks []models.Task) (total, completed, totalHours, completedHours int) {
@@ -71,20 +93,53 @@ func requestSummaryRow(req *models.Request) RequestSummaryRow {
 }
 
 func (s *CustomerService) GetAllReportsSummary(customerID uint) (*SummaryReportResponse, error) {
-	list, err := s.requests.ListByCustomer(customerID)
+	return s.GetAllReportsSummaryForUser(customerID, models.RoleCustomer)
+}
+
+func (s *CustomerService) GetAllReportsSummaryForUser(userID uint, role string) (*SummaryReportResponse, error) {
+	var list []models.Request
+	var err error
+	if role == models.RoleAdmin {
+		list, err = s.requests.ListAll()
+	} else {
+		list, err = s.requests.ListByCustomer(userID)
+	}
 	if err != nil {
 		return nil, err
 	}
+	return buildSummaryReport(list, func(i int) { _ = s.applyOverdueIfNeeded(&list[i]) }), nil
+}
 
+func buildSummaryReport(list []models.Request, beforeRow func(int)) *SummaryReportResponse {
 	out := &SummaryReportResponse{
 		GeneratedAt: time.Now(),
 		Requests:    make([]RequestSummaryRow, 0, len(list)),
+		Tasks:       make([]SummaryTaskRow, 0),
 	}
 
 	for i := range list {
-		_ = s.applyOverdueIfNeeded(&list[i])
+		if beforeRow != nil {
+			beforeRow(i)
+		}
 		row := requestSummaryRow(&list[i])
 		out.Requests = append(out.Requests, row)
+
+		for _, t := range list[i].Tasks {
+			workName := ""
+			hours := 0
+			if t.Work != nil {
+				workName = t.Work.Name
+				hours = t.Work.NormativeHours
+			}
+			out.Tasks = append(out.Tasks, SummaryTaskRow{
+				RequestID:        list[i].ID,
+				RequestTitle:     list[i].Title,
+				WorkName:         workName,
+				ExecutorFullName: taskExecutorFullName(t),
+				Status:           t.Status,
+				NormativeHours:   hours,
+			})
+		}
 
 		out.TotalRequests++
 		out.TotalTasks += row.TotalTasks
@@ -106,5 +161,5 @@ func (s *CustomerService) GetAllReportsSummary(customerID uint) (*SummaryReportR
 		}
 	}
 
-	return out, nil
+	return out
 }

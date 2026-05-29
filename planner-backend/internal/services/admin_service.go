@@ -301,8 +301,14 @@ func (s *AdminService) ListContours() ([]models.DeploymentContour, error) {
 	return s.contours.List()
 }
 
-type ContourInput struct {
-	Name string `json:"name"`
+type CreateContourInput struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+type UpdateContourInput struct {
+	Name        *string `json:"name"`
+	Description *string `json:"description"`
 }
 
 func (s *AdminService) validateContourName(name string) error {
@@ -312,7 +318,7 @@ func (s *AdminService) validateContourName(name string) error {
 	return nil
 }
 
-func (s *AdminService) CreateContour(in ContourInput) (*models.DeploymentContour, error) {
+func (s *AdminService) CreateContour(in CreateContourInput) (*models.DeploymentContour, error) {
 	if err := s.validateContourName(in.Name); err != nil {
 		return nil, err
 	}
@@ -323,14 +329,17 @@ func (s *AdminService) CreateContour(in ContourInput) (*models.DeploymentContour
 	if exists {
 		return nil, errors.New("contour name already exists")
 	}
-	c := &models.DeploymentContour{Name: strings.TrimSpace(in.Name)}
+	c := &models.DeploymentContour{
+		Name:        strings.TrimSpace(in.Name),
+		Description: strings.TrimSpace(in.Description),
+	}
 	if err := s.contours.Create(c); err != nil {
 		return nil, err
 	}
 	return c, nil
 }
 
-func (s *AdminService) UpdateContour(id uint, in ContourInput) (*models.DeploymentContour, error) {
+func (s *AdminService) UpdateContour(id uint, in UpdateContourInput) (*models.DeploymentContour, error) {
 	c, err := s.contours.FindByID(id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -338,17 +347,22 @@ func (s *AdminService) UpdateContour(id uint, in ContourInput) (*models.Deployme
 		}
 		return nil, err
 	}
-	if err := s.validateContourName(in.Name); err != nil {
-		return nil, err
+	if in.Name != nil {
+		if err := s.validateContourName(*in.Name); err != nil {
+			return nil, err
+		}
+		exists, err := s.contours.NameExists(*in.Name, id)
+		if err != nil {
+			return nil, err
+		}
+		if exists {
+			return nil, errors.New("contour name already exists")
+		}
+		c.Name = strings.TrimSpace(*in.Name)
 	}
-	exists, err := s.contours.NameExists(in.Name, id)
-	if err != nil {
-		return nil, err
+	if in.Description != nil {
+		c.Description = strings.TrimSpace(*in.Description)
 	}
-	if exists {
-		return nil, errors.New("contour name already exists")
-	}
-	c.Name = strings.TrimSpace(in.Name)
 	if err := s.contours.Update(c); err != nil {
 		return nil, err
 	}
