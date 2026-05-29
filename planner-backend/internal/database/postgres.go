@@ -28,6 +28,7 @@ func Connect(cfg *config.Config) (*gorm.DB, error) {
 	}
 
 	cleanupOrphans(db)
+	migrateUserFIOBeforeAutoMigrate(db)
 
 	if err := db.AutoMigrate(
 		&models.User{},
@@ -40,6 +41,8 @@ func Connect(cfg *config.Config) (*gorm.DB, error) {
 	); err != nil {
 		return nil, err
 	}
+
+	dropLegacyUserNameColumn(db)
 
 	seedContours(db)
 	seedWorks(db)
@@ -142,14 +145,63 @@ func seedAdmin(db *gorm.DB) {
 	}
 
 	user := &models.User{
-		Email:    email,
-		Password: hash,
-		Role:     models.RoleAdmin,
-		Name:     "Administrator",
+		Email:      email,
+		Password:   hash,
+		Role:       models.RoleAdmin,
+		LastName:   "Администратор",
+		FirstName:  "Системный",
+		Patronymic: "—",
 	}
 	if err := db.Create(user).Error; err != nil {
 		log.Printf("seed admin: %v", err)
 		return
 	}
 	log.Printf("seed admin created: %s", email)
+}
+
+// migrateUserFIOBeforeAutoMigrate добавляет ФИО до AutoMigrate (NOT NULL), чтобы не падать на старых users.
+func migrateUserFIOBeforeAutoMigrate(db *gorm.DB) {
+	if !db.Migrator().HasTable(&models.User{}) {
+		return
+	}
+	if db.Migrator().HasColumn(&models.User{}, "last_name") {
+		db.Exec(`UPDATE users SET last_name = 'Пользователь' WHERE last_name IS NULL OR TRIM(last_name) = ''`)
+		db.Exec(`UPDATE users SET first_name = '—' WHERE first_name IS NULL OR TRIM(first_name) = ''`)
+		db.Exec(`UPDATE users SET patronymic = '—' WHERE patronymic IS NULL OR TRIM(patronymic) = ''`)
+		return
+	}
+
+	hasName := db.Migrator().HasColumn(&models.User{}, "name")
+
+	db.Exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name varchar(100)`)
+	db.Exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name varchar(100)`)
+	db.Exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS patronymic varchar(100)`)
+
+	if hasName {
+		db.Exec(`
+			UPDATE users SET
+				last_name = COALESCE(NULLIF(TRIM(last_name), ''), NULLIF(TRIM(name), ''), 'Пользователь'),
+				first_name = COALESCE(NULLIF(TRIM(first_name), ''), '—'),
+				patronymic = COALESCE(NULLIF(TRIM(patronymic), ''), '—')
+		`)
+	} else {
+		db.Exec(`
+			UPDATE users SET
+				last_name = COALESCE(NULLIF(TRIM(last_name), ''), 'Пользователь'),
+				first_name = COALESCE(NULLIF(TRIM(first_name), ''), '—'),
+				patronymic = COALESCE(NULLIF(TRIM(patronymic), ''), '—')
+		`)
+	}
+
+	db.Exec(`ALTER TABLE users ALTER COLUMN last_name SET NOT NULL`)
+	db.Exec(`ALTER TABLE users ALTER COLUMN first_name SET NOT NULL`)
+	db.Exec(`ALTER TABLE users ALTER COLUMN patronymic SET NOT NULL`)
+}
+
+func dropLegacyUserNameColumn(db *gorm.DB) {
+	if db.Migrator().HasColumn(&models.User{}, "name") {
+		if err := db.Migrator().DropColumn(&models.User{}, "name"); err != nil {
+			log.Printf("drop users.name: %v", err)
+		}
+	}
 }

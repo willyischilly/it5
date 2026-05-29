@@ -20,29 +20,48 @@ func NewRequestHandler(customer *services.CustomerService, executor *services.Ex
 	return &RequestHandler{customer: customer, executor: executor}
 }
 
+func (h *RequestHandler) ListRequests(c *gin.Context) {
+	role := middleware.GetUserRole(c)
+	userID := middleware.GetUserID(c)
+
+	switch role {
+	case models.RoleCustomer:
+		reqs, err := h.customer.ListRequests(userID)
+		if err != nil {
+			response.Internal(c, err.Error())
+			return
+		}
+		response.JSON(c, http.StatusOK, reqs)
+	case models.RoleExecutor:
+		reqs, err := h.executor.ListRequests()
+		if err != nil {
+			response.Internal(c, err.Error())
+			return
+		}
+		response.JSON(c, http.StatusOK, reqs)
+	default:
+		response.Forbidden(c, "insufficient permissions")
+	}
+}
+
 func (h *RequestHandler) GetRequest(c *gin.Context) {
 	requestID, ok := parseRequestID(c)
 	if !ok {
 		return
 	}
 
-	userID := middleware.GetUserID(c)
 	role := middleware.GetUserRole(c)
 
 	switch role {
 	case models.RoleCustomer:
-		req, err := h.customer.GetRequest(userID, requestID)
+		req, err := h.customer.GetRequest(middleware.GetUserID(c), requestID)
 		if err != nil {
 			response.NotFound(c, err.Error())
 			return
 		}
 		response.JSON(c, http.StatusOK, req)
 	case models.RoleExecutor:
-		if err := h.executor.EnsureRequestAccess(userID, requestID); err != nil {
-			response.Forbidden(c, err.Error())
-			return
-		}
-		req, err := h.customer.ViewRequestByID(requestID)
+		req, err := h.executor.GetRequest(requestID)
 		if err != nil {
 			response.NotFound(c, err.Error())
 			return

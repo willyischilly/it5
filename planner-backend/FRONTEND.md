@@ -2,7 +2,7 @@
 
 Бэкенд крутится на http://localhost:8080 (порт в .env, по умолчанию 8080).
 
-Нужны Go 1.22+ и PostgreSQL. Перед запуском скопируй .env.example в .env, укажи DB_PASSWORD и JWT_SECRET не короче 32 символов. Postgres должен работать.
+Нужны Go 1.22+ и PostgreSQL. Перед запуском скопируй .env.example в .env (пароль БД по умолчанию `102030`) и JWT_SECRET не короче 32 символов. Postgres должен работать.
 
 Запуск:
 
@@ -42,7 +42,7 @@ CORS_ORIGINS=http://localhost:5173,http://localhost:3000
 admin@planner.local
 admin123456
 
-Заказчика и исполнителя — через register с role customer или executor, либо admin создаёт пользователя POST /api/admin/users.
+Заказчика и исполнителя — через register с role customer или executor и полями last_name, first_name, patronymic (фамилия, имя, отчество), либо admin создаёт пользователя POST /api/admin/users с теми же полями.
 
 Что уже есть в базе
 
@@ -53,13 +53,13 @@ admin123456
 
 Публично: register, login. С токеном: GET /api/me.
 
-admin — /api/admin/users, works, contours, request-logs, task-logs
+admin — /api/admin/users, works (название, **description** — описание работы в справочнике, нормочасы), contours, request-logs, task-logs. Описание задачи в заявке = `work.description` из справочника: PUT /api/admin/works/:id с полем `description`.
 customer — /api/requests, works, contours, отчёт
-executor — /api/tasks, смена статуса, GET /api/requests/:id если на заявке его задачи
+executor — GET /api/requests (все заявки с задачами), GET /api/tasks (все задачи), POST /api/requests/:id/claim (занять заявку «в планах»), PUT /api/tasks/:id/status (только свои назначенные), GET /api/requests/:id
 
 Как обычно строить экраны
 
-Заказчик логинится, берёт контуры и работы, создаёт заявку POST /api/requests (можно сразу deadline_at в ISO), правит черновик PUT /api/requests/:id.
+Заказчик логинится, берёт контуры и работы, создаёт заявку POST /api/requests (deadline_at опционален, ISO, срок всей заявки), правит черновик PUT /api/requests/:id (deadline_at или clear_deadline true чтобы убрать срок). У задач дедлайна нет; просрочка (overdue) — только у заявки с заданным дедлайном.
 
 Удаление заявки DELETE /api/requests/:id — в черновике (draft) или когда заявка отправлена (submitted) и все задачи ещё pending («в планах»).
 
@@ -69,7 +69,7 @@ executor — /api/tasks, смена статуса, GET /api/requests/:id есл
 
 Отправка POST /api/requests/:id/submit. Если дедлайн прошёл — статус overdue, продление POST /api/requests/:id/extend-deadline с новым deadline_at.
 
-Исполнитель видит GET /api/tasks, меняет статус PUT /api/tasks/:id/status: сначала in_progress, потом completed.
+Исполнитель видит все заявки GET /api/requests и все задачи GET /api/tasks. После submit заказчиком заявка в статусе submitted, задачи pending без исполнителя. Исполнитель занимает заявку POST /api/requests/:id/claim — все задачи «в планах» назначаются ему (в ответе у задачи executor с full_name). Далее PUT /api/tasks/:id/status: in_progress, затем completed (только по своим задачам).
 
 Заказчик смотрит GET /api/requests/:id и отчёты:
 

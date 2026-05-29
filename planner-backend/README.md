@@ -6,7 +6,7 @@ API для планирования развёртывания: заявки, з
 
 Запуск
 
-Скопируй .env.example в .env и пропиши пароль PostgreSQL и JWT_SECRET (минимум 32 символа). PostgreSQL должен быть запущен.
+Скопируй .env.example в .env (в примере `DB_PASSWORD=102030` для локального Postgres) и при необходимости поправь JWT_SECRET (минимум 32 символа). PostgreSQL должен быть запущен.
 
 ```
 Copy-Item .env.example .env
@@ -29,7 +29,7 @@ http://localhost:8080/api/openapi.yaml
 
 admin — /api/admin/... и журналы GET /api/admin/request-logs, /api/admin/task-logs
 customer — заявки, works, contours, отчёт JSON/PDF (GET /api/requests/:id/report/pdf)
-executor — /api/tasks и просмотр заявки, если есть его задачи
+executor — /api/requests, /api/tasks, POST /api/requests/:id/claim, смена статуса своих задач
 
 В запросах: Authorization: Bearer и токен после логина.
 

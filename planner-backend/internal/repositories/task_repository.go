@@ -56,11 +56,67 @@ func (r *TaskRepository) ListByRequest(requestID uint) ([]models.Task, error) {
 
 func (r *TaskRepository) ListByExecutor(executorID uint) ([]models.Task, error) {
 	var tasks []models.Task
-	err := r.db.Preload("Work").Preload("Request.Contour").
+	err := r.db.Preload("Work").Preload("Request.Contour").Preload("Executor").
 		Where("executor_id = ?", executorID).
 		Order("id DESC").
 		Find(&tasks).Error
 	return tasks, err
+}
+
+func (r *TaskRepository) ListAllForExecutors() ([]models.Task, error) {
+	var tasks []models.Task
+	err := r.db.Preload("Work").Preload("Request.Contour").Preload("Executor").
+		Joins("JOIN requests ON requests.id = tasks.request_id").
+		Where("requests.status <> ?", models.RequestStatusDraft).
+		Order("tasks.id DESC").
+		Find(&tasks).Error
+	return tasks, err
+}
+
+func (r *TaskRepository) FindByIDVisibleToExecutor(id uint) (*models.Task, error) {
+	var task models.Task
+	err := r.db.Preload("Work").Preload("Request.Contour").Preload("Executor").
+		Joins("JOIN requests ON requests.id = tasks.request_id").
+		Where("tasks.id = ? AND requests.status <> ?", id, models.RequestStatusDraft).
+		First(&task).Error
+	if err != nil {
+		return nil, err
+	}
+	return &task, nil
+}
+
+func (r *TaskRepository) CountPendingUnassigned(requestID uint) (int64, error) {
+	var count int64
+	err := r.db.Model(&models.Task{}).
+		Where("request_id = ? AND status = ? AND executor_id IS NULL",
+			requestID, models.TaskStatusPending).
+		Count(&count).Error
+	return count, err
+}
+
+func (r *TaskRepository) CountAssignedToOther(requestID, executorID uint) (int64, error) {
+	var count int64
+	err := r.db.Model(&models.Task{}).
+		Where("request_id = ? AND executor_id IS NOT NULL AND executor_id <> ?",
+			requestID, executorID).
+		Count(&count).Error
+	return count, err
+}
+
+func (r *TaskRepository) CountNonPending(requestID uint) (int64, error) {
+	var count int64
+	err := r.db.Model(&models.Task{}).
+		Where("request_id = ? AND status <> ?", requestID, models.TaskStatusPending).
+		Count(&count).Error
+	return count, err
+}
+
+func (r *TaskRepository) ClaimPendingTasks(requestID, executorID uint) (int64, error) {
+	result := r.db.Model(&models.Task{}).
+		Where("request_id = ? AND status = ? AND executor_id IS NULL",
+			requestID, models.TaskStatusPending).
+		Update("executor_id", executorID)
+	return result.RowsAffected, result.Error
 }
 
 func (r *TaskRepository) ClearExecutorAssignments(executorID uint) error {
@@ -127,6 +183,11 @@ func (r *TaskRepository) SumNormativeHours(requestID uint) (int, error) {
 
 func (r *TaskRepository) AssignExecutor(taskID, executorID uint) error {
 	return r.db.Model(&models.Task{}).Where("id = ?", taskID).
+		Update("executor_id", executorID).Error
+}
+
+func (r *TaskRepository) AssignExecutorTx(tx *gorm.DB, taskID, executorID uint) error {
+	return tx.Model(&models.Task{}).Where("id = ?", taskID).
 		Update("executor_id", executorID).Error
 }
 

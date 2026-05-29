@@ -72,7 +72,10 @@ Record "Validation negative hours" ($badWork.Status -eq 400) "status=$($badWork.
 $s = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
 $custEmail = "check_cust_$s@test.local"
 $execEmail = "check_exec_$s@test.local"
-Invoke-Api "POST" "/api/register" @{ email = $custEmail; password = "123456"; name = "C"; role = "customer" } | Out-Null
+Invoke-Api "POST" "/api/register" @{
+    email = $custEmail; password = "123456"; role = "customer"
+    last_name = "Клиентов"; first_name = "Тест"; patronymic = "Тестович"
+} | Out-Null
 for ($try = 0; $try -lt 15; $try++) {
     $allUsers = (Invoke-Api "GET" "/api/admin/users" $null $adminTok).Body | ConvertFrom-Json
     $execs = @($allUsers | Where-Object { $_.role -eq "executor" })
@@ -82,7 +85,8 @@ for ($try = 0; $try -lt 15; $try++) {
     }
 }
 $createExec = Invoke-Api "POST" "/api/admin/users" @{
-    email = $execEmail; password = "123456"; name = "E"; role = "executor"
+    email = $execEmail; password = "123456"; role = "executor"
+    last_name = "Исполнителев"; first_name = "Тест"; patronymic = "Тестович"
 } $adminTok
 $custTok = ((Invoke-Api "POST" "/api/login" @{ email = $custEmail; password = "123456" }).Body | ConvertFrom-Json).token
 $execTok = ((Invoke-Api "POST" "/api/login" @{ email = $execEmail; password = "123456" }).Body | ConvertFrom-Json).token
@@ -90,7 +94,8 @@ $execCount = @((Invoke-Api "GET" "/api/admin/users" $null $adminTok).Body | Conv
 Record "Customer/executor register+login" ($custTok -and $execTok -and $createExec.Ok -and $execCount -eq 1) "executors=$execCount"
 
 $contourId = $contours[0].id
-$req = (Invoke-Api "POST" "/api/requests" @{ title = "Checkup plan"; contour_id = $contourId } $custTok).Body | ConvertFrom-Json
+$deadlineAt = (Get-Date).AddDays(7).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+$req = (Invoke-Api "POST" "/api/requests" @{ title = "Checkup plan"; contour_id = $contourId; deadline_at = $deadlineAt } $custTok).Body | ConvertFrom-Json
 Record "Create draft request" ($req.status -eq "draft") $req.status
 
 $wids = @($works[0].id, $works[1].id)
@@ -102,14 +107,24 @@ $sub = (Invoke-Api "POST" "/api/requests/$($req.id)/submit" $null $custTok).Body
 Record "Submit -> submitted" ($sub.status -eq "submitted") $sub.status
 
 $tasks = (Invoke-Api "GET" "/api/tasks" $null $execTok).Body | ConvertFrom-Json
-Record "Executor has assigned tasks" ($tasks.Count -ge 2) "count=$($tasks.Count)"
+$reqTasks = @($tasks | Where-Object { $_.request_id -eq $req.id })
+Record "Executor sees all tasks" ($reqTasks.Count -ge 2) "count=$($reqTasks.Count)"
 
-$tid = $tasks[0].id
+$claim = Invoke-Api "POST" "/api/requests/$($req.id)/claim" $null $execTok
+$claimed = $claim.Body | ConvertFrom-Json
+$claimOk = $false
+if ($claim.Ok -and $claimed.tasks.Count -ge 2) {
+    $claimOk = ($claimed.tasks | Where-Object { $_.executor.full_name -eq "Исполнителев Тест Тестович" }).Count -ge 2
+}
+if (-not $claimOk -and -not $claim.Ok) { $claimOk = $false; $detail = $claim.Body } else { $detail = "" }
+Record "Executor claims request (FIO)" $claimOk $detail
+
+$tid = $reqTasks[0].id
 Invoke-Api "PUT" "/api/tasks/$tid/status" @{ status = "in_progress" } $execTok | Out-Null
 $badTrans = Invoke-Api "PUT" "/api/tasks/$tid/status" @{ status = "pending" } $execTok
 Record "Invalid status transition" ($badTrans.Status -eq 400) "status=$($badTrans.Status)"
 Invoke-Api "PUT" "/api/tasks/$tid/status" @{ status = "completed" } $execTok | Out-Null
-foreach ($t in $tasks) {
+foreach ($t in $reqTasks) {
     if ($t.id -ne $tid) {
         Invoke-Api "PUT" "/api/tasks/$($t.id)/status" @{ status = "in_progress" } $execTok | Out-Null
         Invoke-Api "PUT" "/api/tasks/$($t.id)/status" @{ status = "completed" } $execTok | Out-Null

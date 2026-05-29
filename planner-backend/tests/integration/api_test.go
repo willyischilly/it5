@@ -132,14 +132,18 @@ func TestFullCaseScenario(t *testing.T) {
 	execEmail := "exec_" + suffix + "@test.local"
 
 	resp, data = api("POST", "/api/register", map[string]string{
-		"email": custEmail, "password": "123456", "name": "Test Customer", "role": "customer",
+		"email": custEmail, "password": "123456",
+		"last_name": "Клиентов", "first_name": "Тест", "patronymic": "Тестович",
+		"role": "customer",
 	}, "")
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("register customer: %d %s", resp.StatusCode, data)
 	}
 
 	resp, data = api("POST", "/api/register", map[string]string{
-		"email": execEmail, "password": "123456", "name": "Test Executor", "role": "executor",
+		"email": execEmail, "password": "123456",
+		"last_name": "Исполнителев", "first_name": "Тест", "patronymic": "Тестович",
+		"role": "executor",
 	}, "")
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("register executor: %d %s", resp.StatusCode, data)
@@ -160,6 +164,7 @@ func TestFullCaseScenario(t *testing.T) {
 
 	resp, data = api("POST", "/api/requests", map[string]interface{}{
 		"title": "Test deployment", "contour_id": contours[0].ID,
+		"deadline_at": time.Now().Add(48 * time.Hour).Format(time.RFC3339),
 	}, custToken)
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create request: %d %s", resp.StatusCode, data)
@@ -172,6 +177,13 @@ func TestFullCaseScenario(t *testing.T) {
 	}, custToken)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("add tasks: %d %s", resp.StatusCode, data)
+	}
+
+	resp, data = api("POST", fmt.Sprintf("/api/requests/%d/tasks", req.ID), map[string][]uint{
+		"work_ids": {works[2].ID, works[2].ID},
+	}, custToken)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("duplicate work_id in same batch should fail, got %d %s", resp.StatusCode, data)
 	}
 
 	resp, data = api("POST", fmt.Sprintf("/api/requests/%d/tasks", req.ID), map[string][]uint{
@@ -203,7 +215,28 @@ func TestFullCaseScenario(t *testing.T) {
 	var tasks []models.Task
 	_ = json.Unmarshal(data, &tasks)
 	if len(tasks) < 2 {
-		t.Fatalf("executor should have >=2 tasks, got %d", len(tasks))
+		t.Fatalf("executor should see >=2 tasks, got %d", len(tasks))
+	}
+
+	resp, data = api("PUT", fmt.Sprintf("/api/tasks/%d/status", tasks[0].ID), map[string]string{
+		"status": "in_progress",
+	}, execToken)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status update before claim should fail, got %d %s", resp.StatusCode, data)
+	}
+
+	resp, data = api("POST", fmt.Sprintf("/api/requests/%d/claim", req.ID), nil, execToken)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("claim request: %d %s", resp.StatusCode, data)
+	}
+	_ = json.Unmarshal(data, &req)
+	if len(req.Tasks) < 2 {
+		t.Fatalf("claimed request should have tasks")
+	}
+	for _, tk := range req.Tasks {
+		if tk.Executor == nil || tk.Executor.FullName() != "Исполнителев Тест Тестович" {
+			t.Fatalf("task should be assigned to executor FIO, got %+v", tk.Executor)
+		}
 	}
 
 	taskID := tasks[0].ID
@@ -268,7 +301,9 @@ func TestValidationAndAuth(t *testing.T) {
 	}
 
 	resp, data := api("POST", "/api/register", map[string]string{
-		"email": "bad", "password": "123456", "name": "X", "role": "customer",
+		"email": "bad", "password": "123456",
+		"last_name": "X", "first_name": "X", "patronymic": "X",
+		"role": "customer",
 	}, "")
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("bad email: expected 400, got %d %s", resp.StatusCode, data)

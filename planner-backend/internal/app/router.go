@@ -26,7 +26,7 @@ func NewRouter(cfg *config.Config, db *gorm.DB) (*gin.Engine, *services.AuthServ
 	auditSvc := services.NewAuditService(requestLogRepo)
 	adminSvc := services.NewAdminService(userRepo, workRepo, contourRepo, taskRepo, requestLogRepo)
 	customerSvc := services.NewCustomerService(requestRepo, taskRepo, workRepo, contourRepo, userRepo, auditSvc)
-	executorSvc := services.NewExecutorService(taskRepo, requestRepo, auditSvc)
+	executorSvc := services.NewExecutorService(taskRepo, requestRepo, userRepo, auditSvc)
 
 	authHandler := handlers.NewAuthHandler(authSvc)
 	adminHandler := handlers.NewAdminHandler(adminSvc)
@@ -50,6 +50,10 @@ func NewRouter(cfg *config.Config, db *gorm.DB) (*gin.Engine, *services.AuthServ
 	protected.Use(middleware.Auth(authSvc))
 	{
 		protected.GET("/me", authHandler.Me)
+		protected.GET("/requests",
+			middleware.RequireAnyRole(models.RoleCustomer, models.RoleExecutor),
+			requestHandler.ListRequests,
+		)
 		protected.GET("/requests/:id",
 			middleware.RequireAnyRole(models.RoleCustomer, models.RoleExecutor),
 			requestHandler.GetRequest,
@@ -61,7 +65,6 @@ func NewRouter(cfg *config.Config, db *gorm.DB) (*gin.Engine, *services.AuthServ
 			customer.GET("/works", customerHandler.ListWorks)
 			customer.GET("/contours", customerHandler.ListContours)
 			customer.POST("/requests", customerHandler.CreateRequest)
-			customer.GET("/requests", customerHandler.ListRequests)
 			customer.GET("/requests/reports/summary", customerHandler.GetAllReportsSummary)
 			customer.GET("/requests/reports/summary/pdf", customerHandler.GetAllReportsSummaryPDF)
 			customer.PUT("/requests/:id", customerHandler.UpdateRequest)
@@ -77,6 +80,7 @@ func NewRouter(cfg *config.Config, db *gorm.DB) (*gin.Engine, *services.AuthServ
 		executor := protected.Group("")
 		executor.Use(middleware.RequireRole(models.RoleExecutor))
 		{
+			executor.POST("/requests/:id/claim", executorHandler.ClaimRequest)
 			executor.GET("/tasks", executorHandler.ListTasks)
 			executor.GET("/tasks/:id", executorHandler.GetTask)
 			executor.PUT("/tasks/:id/status", executorHandler.UpdateStatus)

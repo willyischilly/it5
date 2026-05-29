@@ -65,10 +65,12 @@ func (s *AdminService) ListUsers() ([]UserResponse, error) {
 }
 
 type CreateUserInput struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
-	Name     string `json:"name"`
-	Role     string `json:"role"`
+	Email      string `json:"email"`
+	Password   string `json:"password"`
+	LastName   string `json:"last_name"`
+	FirstName  string `json:"first_name"`
+	Patronymic string `json:"patronymic"`
+	Role       string `json:"role"`
 }
 
 func (s *AdminService) CreateUser(in CreateUserInput) (*UserResponse, error) {
@@ -78,8 +80,11 @@ func (s *AdminService) CreateUser(in CreateUserInput) (*UserResponse, error) {
 	if !validation.Password(in.Password) {
 		return nil, errors.New("password must be at least 6 characters")
 	}
-	if !validation.NonEmpty(in.Name) {
-		return nil, errors.New("name is required")
+	person := trimPerson(PersonInput{
+		LastName: in.LastName, FirstName: in.FirstName, Patronymic: in.Patronymic,
+	})
+	if err := validatePerson(person); err != nil {
+		return nil, err
 	}
 	if !models.ValidRole(in.Role) {
 		return nil, errors.New("invalid role")
@@ -98,8 +103,9 @@ func (s *AdminService) CreateUser(in CreateUserInput) (*UserResponse, error) {
 	}
 
 	user := &models.User{
-		Email: in.Email, Password: hash, Name: in.Name, Role: in.Role,
+		Email: in.Email, Password: hash, Role: in.Role,
 	}
+	applyPersonToUser(user, person)
 	if err := s.users.Create(user); err != nil {
 		return nil, err
 	}
@@ -108,10 +114,12 @@ func (s *AdminService) CreateUser(in CreateUserInput) (*UserResponse, error) {
 }
 
 type UpdateUserInput struct {
-	Email    *string `json:"email"`
-	Password *string `json:"password"`
-	Name     *string `json:"name"`
-	Role     *string `json:"role"`
+	Email      *string `json:"email"`
+	Password   *string `json:"password"`
+	LastName   *string `json:"last_name"`
+	FirstName  *string `json:"first_name"`
+	Patronymic *string `json:"patronymic"`
+	Role       *string `json:"role"`
 }
 
 func (s *AdminService) UpdateUser(id uint, in UpdateUserInput) (*UserResponse, error) {
@@ -146,11 +154,23 @@ func (s *AdminService) UpdateUser(id uint, in UpdateUserInput) (*UserResponse, e
 		}
 		user.Password = hash
 	}
-	if in.Name != nil {
-		if !validation.NonEmpty(*in.Name) {
-			return nil, errors.New("name is required")
+	if in.LastName != nil || in.FirstName != nil || in.Patronymic != nil {
+		p := PersonInput{
+			LastName: user.LastName, FirstName: user.FirstName, Patronymic: user.Patronymic,
 		}
-		user.Name = *in.Name
+		if in.LastName != nil {
+			p.LastName = strings.TrimSpace(*in.LastName)
+		}
+		if in.FirstName != nil {
+			p.FirstName = strings.TrimSpace(*in.FirstName)
+		}
+		if in.Patronymic != nil {
+			p.Patronymic = strings.TrimSpace(*in.Patronymic)
+		}
+		if err := validatePerson(p); err != nil {
+			return nil, err
+		}
+		applyPersonToUser(user, p)
 	}
 	if in.Role != nil {
 		if !models.ValidRole(*in.Role) {

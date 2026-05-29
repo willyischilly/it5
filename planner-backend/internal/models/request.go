@@ -16,6 +16,7 @@ type Request struct {
 	CustomerID uint       `gorm:"not null" json:"customer_id"`
 	ContourID  uint       `gorm:"not null" json:"contour_id"`
 	Status     string     `gorm:"size:50;default:draft" json:"status"`
+	// DeadlineAt — срок всей заявки; просрочка (status overdue) только у заявки, не у задач.
 	DeadlineAt *time.Time `json:"deadline_at,omitempty"`
 	TotalHours int        `gorm:"default:0" json:"total_hours"`
 	CreatedAt  time.Time  `json:"created_at"`

@@ -30,3 +30,8 @@ func MaxLen(s string, max int) bool {
 	s = strings.TrimSpace(s)
 	return s != "" && len(s) <= max
 }
+
+// PersonName — фамилия, имя или отчество (до 100 символов).
+func PersonName(s string) bool {
+	return MaxLen(s, 100)
+}

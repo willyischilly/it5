@@ -2,6 +2,7 @@ package models
 
 import "time"
 
+// ShouldBeOverdue — просрочка только у заявки в целом (не у отдельных задач).
 func ShouldBeOverdue(req *Request) bool {
 	if req.DeadlineAt == nil {
 		return false

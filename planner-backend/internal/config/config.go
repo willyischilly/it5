@@ -32,7 +32,7 @@ func Load() (*Config, error) {
 		DBHost:         getEnv("DB_HOST", "localhost"),
 		DBPort:         getEnv("DB_PORT", "5432"),
 		DBUser:         getEnv("DB_USER", "postgres"),
-		DBPassword:     getEnv("DB_PASSWORD", "postgres"),
+		DBPassword:     getEnv("DB_PASSWORD", "102030"),
 		DBName:         getEnv("DB_NAME", "planner"),
 		JWTSecret:      getEnv("JWT_SECRET", ""),
 		JWTExpireHours: expireHours,

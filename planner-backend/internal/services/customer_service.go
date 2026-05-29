@@ -47,9 +47,10 @@ type CreateRequestInput struct {
 }
 
 type UpdateRequestInput struct {
-	Title      *string    `json:"title"`
-	ContourID  *uint      `json:"contour_id"`
-	DeadlineAt *time.Time `json:"deadline_at"`
+	Title         *string    `json:"title"`
+	ContourID     *uint      `json:"contour_id"`
+	DeadlineAt    *time.Time `json:"deadline_at"`
+	ClearDeadline bool       `json:"clear_deadline"`
 }
 
 type ExtendDeadlineInput struct {
@@ -132,7 +133,9 @@ func (s *CustomerService) UpdateRequest(customerID, requestID uint, in UpdateReq
 		}
 		req.ContourID = *in.ContourID
 	}
-	if in.DeadlineAt != nil {
+	if in.ClearDeadline {
+		req.DeadlineAt = nil
+	} else if in.DeadlineAt != nil {
 		if err := validateFutureDeadline(in.DeadlineAt); err != nil {
 			return nil, err
 		}
@@ -217,6 +220,9 @@ func (s *CustomerService) AddTasks(customerID, requestID uint, in AddTasksInput)
 
 	items, err := normalizeAddTasks(in)
 	if err != nil {
+		return nil, err
+	}
+	if err := validateNoDuplicateWorkIDs(items); err != nil {
 		return nil, err
 	}
 
@@ -329,41 +335,26 @@ func (s *CustomerService) Submit(customerID, requestID uint) (*models.Request, e
 		return nil, errors.New("request must have at least one task")
 	}
 
-	executors, err := s.users.ListByRole(models.RoleExecutor)
-	if err != nil {
-		return nil, err
-	}
-	if len(executors) == 0 {
-		return nil, errors.New("no executors available for assignment")
-	}
-
 	tasks, err := s.tasks.ListByRequest(requestID)
 	if err != nil {
 		return nil, err
 	}
 
-	for i := range tasks {
-		executor := executors[i%len(executors)]
-		if err := s.tasks.AssignExecutor(tasks[i].ID, executor.ID); err != nil {
-			return nil, err
-		}
-	}
-
 	oldStatus := req.Status
-	req.Status = models.RequestStatusSubmitted
-	if err := s.requests.Update(req); err != nil {
+	newStatus := models.RequestStatusSubmitted
+	if err := s.requests.UpdateStatus(requestID, newStatus); err != nil {
 		return nil, err
 	}
 
-	newStatus := models.RequestStatusSubmitted
 	_ = s.audit.LogRequest(requestID, customerID, models.RequestLogActionSubmitted, &oldStatus, &newStatus,
-		fmt.Sprintf("tasks=%d executors=%d", len(tasks), len(executors)))
+		fmt.Sprintf("tasks=%d", len(tasks)))
 
 	return s.requests.FindByIDAndCustomer(requestID, customerID)
 }
 
 type ReportTask struct {
 	Name            string `json:"name"`
+	Description     string `json:"description,omitempty"`
 	NormativeHours  int    `json:"normative_hours"`
 	Status          string `json:"status"`
 	CustomerComment string `json:"customer_comment,omitempty"`
@@ -394,14 +385,15 @@ func (s *CustomerService) GetReport(customerID, requestID uint) (*ReportResponse
 	completedHours := 0
 
 	for _, t := range req.Tasks {
-		name := ""
+		name, desc := "", ""
 		hours := 0
 		if t.Work != nil {
 			name = t.Work.Name
+			desc = t.Work.Description
 			hours = t.Work.NormativeHours
 		}
 		reportTasks = append(reportTasks, ReportTask{
-			Name: name, NormativeHours: hours, Status: t.Status,
+			Name: name, Description: desc, NormativeHours: hours, Status: t.Status,
 			CustomerComment: t.CustomerComment,
 		})
 		if t.Status == models.TaskStatusCompleted {
@@ -464,12 +456,24 @@ func (s *CustomerService) ViewRequestByID(requestID uint) (*models.Request, erro
 	return s.requests.FindByID(requestID)
 }
 
+// validateFutureDeadline — дедлайн опционален; если передан, должен быть в будущем.
 func validateFutureDeadline(deadline *time.Time) error {
 	if deadline == nil {
 		return nil
 	}
 	if !deadline.After(time.Now()) {
 		return errors.New("deadline must be in the future")
+	}
+	return nil
+}
+
+func validateNoDuplicateWorkIDs(items []AddTaskItem) error {
+	seen := make(map[uint]struct{}, len(items))
+	for _, it := range items {
+		if _, ok := seen[it.WorkID]; ok {
+			return fmt.Errorf("duplicate work_id in request body: %d", it.WorkID)
+		}
+		seen[it.WorkID] = struct{}{}
 	}
 	return nil
 }

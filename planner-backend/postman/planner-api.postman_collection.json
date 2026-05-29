@@ -155,7 +155,7 @@
             "method": "POST",
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "url": "{{baseUrl}}/api/requests",
-            "body": { "mode": "raw", "raw": "{\n  \"title\": \"Развертывание CRM\",\n  \"contour_id\": 3\n}" }
+            "body": { "mode": "raw", "raw": "{\n  \"title\": \"Развертывание CRM\",\n  \"contour_id\": 3,\n  \"deadline_at\": \"2026-12-31T18:00:00Z\"\n}" }
           }
         },
         { "name": "List requests", "request": { "method": "GET", "url": "{{baseUrl}}/api/requests" } },

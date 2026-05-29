@@ -77,30 +77,26 @@ func BuildSummaryReportPDF(summary *SummaryReportResponse) ([]byte, error) {
 
 	colW := []float64{12, 42, 22, 26, 22, 22, 28}
 	headers := []string{"№", "Название", "Контур", "Статус", "Задачи", "Часы", "Дедлайн"}
+	sumAligns := []string{"C", "L", "C", "C", "C", "C", "C"}
 	pdf.SetFont(fontName, "B", 9)
-	pdf.SetFillColor(230, 230, 230)
-	for i, h := range headers {
-		pdf.CellFormat(colW[i], 7, h, "1", 0, "C", true, 0, "")
-	}
-	pdf.Ln(-1)
+	pdfDrawTableRow(pdf, colW, sumAligns, headers, 6, true)
 
 	pdf.SetFont(fontName, "", 9)
-	pdf.SetFillColor(255, 255, 255)
 	for _, r := range summary.Requests {
 		deadline := "—"
 		if r.DeadlineAt != nil {
 			deadline = r.DeadlineAt.Format("02.01.06")
 		}
-		tasksCol := fmt.Sprintf("%d/%d", r.CompletedTasks, r.TotalTasks)
-		hoursCol := fmt.Sprintf("%d/%d", r.CompletedHours, r.TotalHours)
-		pdf.CellFormat(colW[0], 7, fmt.Sprintf("%d", r.RequestID), "1", 0, "C", false, 0, "")
-		pdf.CellFormat(colW[1], 7, truncate(r.Title, 28), "1", 0, "L", false, 0, "")
-		pdf.CellFormat(colW[2], 7, truncate(r.Contour, 12), "1", 0, "C", false, 0, "")
-		pdf.CellFormat(colW[3], 7, statusRu(reportStatusRu, r.Status), "1", 0, "C", false, 0, "")
-		pdf.CellFormat(colW[4], 7, tasksCol, "1", 0, "C", false, 0, "")
-		pdf.CellFormat(colW[5], 7, hoursCol, "1", 0, "C", false, 0, "")
-		pdf.CellFormat(colW[6], 7, deadline, "1", 0, "C", false, 0, "")
-		pdf.Ln(-1)
+		cells := []string{
+			fmt.Sprintf("%d", r.RequestID),
+			r.Title,
+			r.Contour,
+			statusRu(reportStatusRu, r.Status),
+			fmt.Sprintf("%d/%d", r.CompletedTasks, r.TotalTasks),
+			fmt.Sprintf("%d/%d", r.CompletedHours, r.TotalHours),
+			deadline,
+		}
+		pdfDrawTableRow(pdf, colW, sumAligns, cells, 6, false)
 	}
 
 	pdf.Ln(6)
@@ -119,9 +115,13 @@ func BuildReportPDF(report *ReportResponse) ([]byte, error) {
 	pdf.CellFormat(0, titleH, "Отчёт по плану развёртывания", "", 1, "L", false, 0, "")
 	pdf.Ln(4)
 
+	const labelW = 40.0
+	const valueW = 138.0
+	const lineH = 6.0
+
 	pdf.SetFont(fontName, "", 11)
 	writeRow(pdf, fontName, "Заявка №", fmt.Sprintf("%d", report.RequestID))
-	writeRow(pdf, fontName, "Название", report.Title)
+	writeRowWrap(pdf, fontName, "Название", report.Title, labelW, valueW, lineH)
 	writeRow(pdf, fontName, "Контур", report.Contour)
 	writeRow(pdf, fontName, "Статус", statusRu(reportStatusRu, report.Status))
 	writeRow(pdf, fontName, "Создана", report.CreatedAt.Format("02.01.2006 15:04"))
@@ -134,35 +134,28 @@ func BuildReportPDF(report *ReportResponse) ([]byte, error) {
 	pdf.CellFormat(0, 8, "Задачи", "", 1, "L", false, 0, "")
 	pdf.Ln(2)
 
-	colW := []float64{55, 22, 28, 75}
-	headers := []string{"Работа", "Часы", "Статус", "Комментарий"}
-	pdf.SetFont(fontName, "B", 10)
-	pdf.SetFillColor(230, 230, 230)
-	for i, h := range headers {
-		pdf.CellFormat(colW[i], 7, h, "1", 0, "C", true, 0, "")
-	}
-	pdf.Ln(-1)
+	colW := []float64{36, 42, 14, 22, 66}
+	aligns := []string{"L", "L", "C", "C", "L"}
+	headers := []string{"Работа", "Описание", "Часы", "Статус", "Комментарий"}
+	pdf.SetFont(fontName, "B", 9)
+	pdfDrawTableRow(pdf, colW, aligns, headers, lineH, true)
 
-	pdf.SetFont(fontName, "", 10)
-	pdf.SetFillColor(255, 255, 255)
+	pdf.SetFont(fontName, "", 9)
 	for _, t := range report.Tasks {
 		name := t.Name
 		if name == "" {
 			name = "—"
 		}
+		desc := t.Description
 		comment := t.CustomerComment
-		if comment == "" {
-			comment = "—"
+		cells := []string{
+			name,
+			desc,
+			fmt.Sprintf("%d", t.NormativeHours),
+			statusRu(taskStatusRu, t.Status),
+			comment,
 		}
-		rowH := 7.0
-		if len(comment) > 40 {
-			rowH = 14.0
-		}
-		pdf.CellFormat(colW[0], rowH, truncate(name, 35), "1", 0, "L", false, 0, "")
-		pdf.CellFormat(colW[1], rowH, fmt.Sprintf("%d", t.NormativeHours), "1", 0, "C", false, 0, "")
-		pdf.CellFormat(colW[2], rowH, statusRu(taskStatusRu, t.Status), "1", 0, "C", false, 0, "")
-		pdf.CellFormat(colW[3], rowH, truncate(comment, 45), "1", 0, "L", false, 0, "")
-		pdf.Ln(-1)
+		pdfDrawTableRow(pdf, colW, aligns, cells, lineH, false)
 	}
 
 	pdf.Ln(6)
@@ -183,10 +176,3 @@ func writeRow(pdf *gofpdf.Fpdf, font, label, value string) {
 	pdf.CellFormat(0, 7, value, "", 1, "L", false, 0, "")
 }
 
-func truncate(s string, max int) string {
-	r := []rune(s)
-	if len(r) <= max {
-		return s
-	}
-	return string(r[:max-1]) + "…"
-}

@@ -24,7 +24,10 @@ components:
       properties:
         id: { type: integer }
         email: { type: string }
-        name: { type: string }
+        last_name: { type: string, description: Фамилия }
+        first_name: { type: string, description: Имя }
+        patronymic: { type: string, description: Отчество }
+        full_name: { type: string, description: "Фамилия Имя Отчество" }
         role: { type: string, enum: [admin, customer, executor] }
     LoginRequest:
       type: object
@@ -34,11 +37,13 @@ components:
         password: { type: string }
     RegisterRequest:
       type: object
-      required: [email, password, name, role]
+      required: [email, password, last_name, first_name, patronymic, role]
       properties:
         email: { type: string }
         password: { type: string }
-        name: { type: string }
+        last_name: { type: string }
+        first_name: { type: string }
+        patronymic: { type: string }
         role: { type: string, enum: [customer, executor] }
     LoginResponse:
       type: object
@@ -58,6 +63,11 @@ components:
       properties:
         title: { type: string }
         contour_id: { type: integer }
+        deadline_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Опциональный дедлайн всей заявки (ISO 8601)
     AddTasksBody:
       type: object
       required: [work_ids]
@@ -151,8 +161,8 @@ paths:
           description: OK
   /requests:
     get:
-      tags: [Customer]
-      summary: Список заявок заказчика
+      tags: [Customer, Executor]
+      summary: Список заявок (заказчик — свои; исполнитель — все кроме черновиков, с задачами)
       responses:
         '200':
           description: OK
@@ -277,10 +287,24 @@ paths:
               schema:
                 type: string
                 format: binary
+  /requests/{id}/claim:
+    post:
+      tags: [Executor]
+      summary: Занять заявку (все задачи «в планах» назначаются исполнителю по ФИО)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Заявка с назначенными задачами
+        '400':
+          description: Нельзя занять (уже занята, не submitted и т.д.)
   /tasks:
     get:
       tags: [Executor]
-      summary: Список назначенных задач
+      summary: Все задачи по всем заявкам (кроме черновиков)
       responses:
         '200':
           description: OK

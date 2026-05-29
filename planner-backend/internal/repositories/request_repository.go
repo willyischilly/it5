@@ -50,6 +50,26 @@ func (r *RequestRepository) ListByCustomer(customerID uint) ([]models.Request, e
 	return requests, err
 }
 
+func (r *RequestRepository) ListForExecutors() ([]models.Request, error) {
+	var requests []models.Request
+	err := r.db.Preload("Contour").Preload("Tasks.Work").Preload("Tasks.Executor").
+		Where("status <> ?", models.RequestStatusDraft).
+		Order("id DESC").
+		Find(&requests).Error
+	return requests, err
+}
+
+func (r *RequestRepository) FindByIDVisibleToExecutor(id uint) (*models.Request, error) {
+	var req models.Request
+	err := r.db.Preload("Contour").Preload("Tasks.Work").Preload("Tasks.Executor").
+		Where("id = ? AND status <> ?", id, models.RequestStatusDraft).
+		First(&req).Error
+	if err != nil {
+		return nil, err
+	}
+	return &req, nil
+}
+
 func (r *RequestRepository) Update(req *models.Request) error {
 	return r.db.Save(req).Error
 }
@@ -62,6 +82,15 @@ func (r *RequestRepository) UpdateTotalHours(requestID uint, total int) error {
 func (r *RequestRepository) UpdateStatus(requestID uint, status string) error {
 	return r.db.Model(&models.Request{}).Where("id = ?", requestID).
 		Update("status", status).Error
+}
+
+func (r *RequestRepository) UpdateStatusTx(tx *gorm.DB, requestID uint, status string) error {
+	return tx.Model(&models.Request{}).Where("id = ?", requestID).
+		Update("status", status).Error
+}
+
+func (r *RequestRepository) Transaction(fn func(tx *gorm.DB) error) error {
+	return r.db.Transaction(fn)
 }
 
 func (r *RequestRepository) UpdateDeadline(requestID uint, deadline *time.Time) error {

@@ -25,10 +25,12 @@ func NewAuthService(users *repositories.UserRepository, cfg *config.Config) *Aut
 }
 
 type RegisterInput struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
-	Name     string `json:"name"`
-	Role     string `json:"role"`
+	Email      string `json:"email"`
+	Password   string `json:"password"`
+	LastName   string `json:"last_name"`
+	FirstName  string `json:"first_name"`
+	Patronymic string `json:"patronymic"`
+	Role       string `json:"role"`
 }
 
 type LoginInput struct {
@@ -42,15 +44,24 @@ type LoginResult struct {
 }
 
 type UserResponse struct {
-	ID    uint   `json:"id"`
-	Email string `json:"email"`
-	Name  string `json:"name"`
-	Role  string `json:"role"`
+	ID         uint   `json:"id"`
+	Email      string `json:"email"`
+	Role       string `json:"role"`
+	LastName   string `json:"last_name"`
+	FirstName  string `json:"first_name"`
+	Patronymic string `json:"patronymic"`
+	FullName   string `json:"full_name"`
 }
 
 func ToUserResponse(u *models.User) UserResponse {
 	return UserResponse{
-		ID: u.ID, Email: u.Email, Name: u.Name, Role: u.Role,
+		ID:         u.ID,
+		Email:      u.Email,
+		Role:       u.Role,
+		LastName:   u.LastName,
+		FirstName:  u.FirstName,
+		Patronymic: u.Patronymic,
+		FullName:   u.FullName(),
 	}
 }
 
@@ -68,8 +79,11 @@ func (s *AuthService) Register(in RegisterInput) (*LoginResult, error) {
 	if !validation.Password(in.Password) {
 		return nil, errors.New("password must be at least 6 characters")
 	}
-	if !validation.NonEmpty(in.Name) {
-		return nil, errors.New("name is required")
+	person := trimPerson(PersonInput{
+		LastName: in.LastName, FirstName: in.FirstName, Patronymic: in.Patronymic,
+	})
+	if err := validatePerson(person); err != nil {
+		return nil, err
 	}
 	if !models.ValidRegisterRole(in.Role) {
 		return nil, errors.New("role must be customer or executor")
@@ -92,8 +106,8 @@ func (s *AuthService) Register(in RegisterInput) (*LoginResult, error) {
 		Email:    in.Email,
 		Password: hash,
 		Role:     in.Role,
-		Name:     in.Name,
 	}
+	applyPersonToUser(user, person)
 	if err := s.users.Create(user); err != nil {
 		return nil, err
 	}
