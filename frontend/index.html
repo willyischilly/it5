@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
@@ -32,7 +32,6 @@
                     <input type="password" id="password" placeholder="Пароль" required>
                     <button type="submit" class="btn-primary">Войти</button>
                 </form>
-                </div>
                 <div class="divider">Нет аккаунта?</div>
                 <button onclick="showRegistrationModal()" class="btn-outline" style="width:100%;">Зарегистрироваться</button>
             </div>
@@ -53,7 +52,10 @@
                 <!-- Пользователи -->
                 <div id="tabUsers" class="tab-content active">
                     <div class="section">
-                        <h3>Список пользователей</h3>
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                            <h3>Список пользователей</h3>
+                            <button onclick="showCreateUserModal()" class="btn-primary">Создать пользователя</button>
+                        </div>
                         <div id="adminUsersList"></div>
                     </div>
                 </div>
@@ -73,7 +75,7 @@
                         <h3>Справочник работ</h3>
                         <table class="data-table">
                             <thead>
-                                <tr><th>Название</th><th>Часы</th><th></th></tr>
+                                <tr><th>Название</th><th>Описание</th><th>Часы</th><th></th></tr>
                             </thead>
                             <tbody id="templatesTable"></tbody>
                         </table>
@@ -133,11 +135,16 @@
                 <div id="tabNew" class="tab-content">
                     <div class="section">
                         <h3>Название заявки</h3>
-                        <input type="text" id="requestTitle" placeholder="Например: Развертывание бэкенда" style="width: 100%; padding: 10px 14px; border-radius: 6px; border: 1px solid #d1d5db;">
+                        <input type="text" id="requestTitle" placeholder="Например: Развертывание бэкенда" style="width: 100%; padding: 10px 14px; border-radius: 6px; border: 1px solid #d1d5db;" required>
                     </div>
                     <div class="section">
                         <h3>Контур развертывания</h3>
-                        <select id="contourSelect"></select>
+                        <select id="contourSelect" required></select>
+                    </div>
+                    <div class="section">
+                        <h3>Срок выполнения (дедлайн)</h3>
+                        <input type="date" id="deadlineDate" style="padding: 10px 14px; border-radius: 6px; border: 1px solid #d1d5db; width: 100%;" required>
+                        <small style="display:block; color:#666; margin-top:5px;">Укажите дату завершения</small>
                     </div>
                     <div class="section">
                         <h3>Выберите работы</h3>
@@ -155,6 +162,7 @@
                 <div id="executorTasks"></div>
             </div>
         </div>
+
         <!-- детали заявки исполнитель -->
         <div id="requestDetailModal" class="modal" style="display:none">
             <div class="modal-content" style="max-width: 600px;">
@@ -163,7 +171,8 @@
                 <div id="requestDetailContent"></div>
             </div>
         </div>
-        <!-- детали заявик (заказчик) -->
+
+        <!-- детали заявки (заказчик) -->
         <div id="requestDetailModalCustomer" class="modal" style="display:none">
             <div class="modal-content" style="max-width: 600px;">
                 <span class="close" onclick="closeRequestDetailModalCustomer()">&times;</span>
@@ -171,6 +180,7 @@
                 <div id="requestDetailContentCustomer"></div>
             </div>
         </div>
+
         <!-- регистрация -->
         <div id="registrationModal" class="modal" style="display:none">
             <div class="modal-content">
@@ -181,8 +191,16 @@
                     <input type="email" id="regEmail" placeholder="example@mail.ru" required>
                 </div>
                 <div class="profile-field">
-                    <label>ФИО</label>
-                    <input type="text" id="regFullname" placeholder="Иванов Иван Иванович" required>
+                    <label>Фамилия</label>
+                    <input type="text" id="regLastName" placeholder="Иванов" required>
+                </div>
+                <div class="profile-field">
+                    <label>Имя</label>
+                    <input type="text" id="regFirstName" placeholder="Иван" required>
+                </div>
+                <div class="profile-field">
+                    <label>Отчество</label>
+                    <input type="text" id="regPatronymic" placeholder="Иванович">
                 </div>
                 <div class="profile-field">
                     <label>Роль</label>
@@ -211,7 +229,11 @@
                 <h3>Создать контур</h3>
                 <div class="profile-field">
                     <label>Название контура</label>
-                    <input type="text" id="newContourName" placeholder="Например: Dev, QA, UAT, Prod">
+                    <input type="text" id="newContourName" placeholder="Например: Dev, QA, UAT, Prod" required>
+                </div>
+                <div class="profile-field">
+                    <label>Описание контура</label>
+                    <textarea id="newContourDescription" rows="3" placeholder="Описание назначения контура" style="width:100%; padding:8px; border-radius:6px; border:1px solid #d1d5db;"></textarea>
                 </div>
                 <div style="display:flex; gap:10px; margin-top:20px;">
                     <button onclick="createAdminContour()" class="btn-primary">Создать</button>
@@ -220,7 +242,7 @@
             </div>
         </div>
 
-        <!-- создание юзера -->
+        <!-- создание юзера (админ) -->
         <div id="createUserModal" class="modal" style="display:none">
             <div class="modal-content">
                 <span class="close" onclick="closeCreateUserModal()">&times;</span>
@@ -230,14 +252,23 @@
                     <input type="email" id="newUserEmail" placeholder="user@example.com" required>
                 </div>
                 <div class="profile-field">
-                    <label>ФИО</label>
-                    <input type="text" id="newUserName" placeholder="Иванов Иван Иванович" required>
+                    <label>Фамилия</label>
+                    <input type="text" id="newUserLastName" placeholder="Иванов" required>
+                </div>
+                <div class="profile-field">
+                    <label>Имя</label>
+                    <input type="text" id="newUserFirstName" placeholder="Иван" required>
+                </div>
+                <div class="profile-field">
+                    <label>Отчество</label>
+                    <input type="text" id="newUserPatronymic" placeholder="Иванович">
                 </div>
                 <div class="profile-field">
                     <label>Роль</label>
                     <select id="newUserRole">
                         <option value="customer">Заказчик</option>
                         <option value="executor">Исполнитель</option>
+                        <option value="admin">Администратор</option>
                     </select>
                 </div>
                 <div class="profile-field">
@@ -251,7 +282,7 @@
             </div>
         </div>
 
-        <!-- редактирование юзера -->
+        <!-- редактирование юзера (админ) -->
         <div id="editUserModal" class="modal" style="display:none">
             <div class="modal-content">
                 <span class="close" onclick="closeEditUserModal()">&times;</span>
@@ -262,14 +293,23 @@
                     <input type="email" id="editUserEmail" placeholder="user@example.com" required>
                 </div>
                 <div class="profile-field">
-                    <label>ФИО</label>
-                    <input type="text" id="editUserName" placeholder="Иванов Иван Иванович" required>
+                    <label>Фамилия</label>
+                    <input type="text" id="editUserLastName" placeholder="Иванов" required>
+                </div>
+                <div class="profile-field">
+                    <label>Имя</label>
+                    <input type="text" id="editUserFirstName" placeholder="Иван" required>
+                </div>
+                <div class="profile-field">
+                    <label>Отчество</label>
+                    <input type="text" id="editUserPatronymic" placeholder="Иванович">
                 </div>
                 <div class="profile-field">
                     <label>Роль</label>
                     <select id="editUserRole">
                         <option value="customer">Заказчик</option>
                         <option value="executor">Исполнитель</option>
+                        <option value="admin">Администратор</option>
                     </select>
                 </div>
                 <div class="profile-field">
@@ -283,7 +323,7 @@
             </div>
         </div>
 
-        <!-- редактирование работы-->
+        <!-- редактирование работы (админ) -->
         <div id="editWorkModal" class="modal" style="display:none">
             <div class="modal-content">
                 <span class="close" onclick="closeEditWorkModal()">&times;</span>
@@ -308,6 +348,27 @@
             </div>
         </div>
 
-        <script src="Script1.js"></script>
+    </div>
+    <!-- редактирование контура (админ) -->
+    <div id="editContourModal" class="modal" style="display:none">
+        <div class="modal-content" style="max-width: 400px;">
+            <span class="close" onclick="closeEditContourModal()">&times;</span>
+            <h3>Редактировать контур</h3>
+            <input type="hidden" id="editContourId">
+            <div class="profile-field">
+                <label>Название контура</label>
+                <input type="text" id="editContourName" placeholder="Название контура">
+            </div>
+            <div class="profile-field">
+                <label>Описание контура</label>
+                <textarea id="editContourDescription" rows="3" placeholder="Описание назначения контура" style="width:100%; padding:8px; border-radius:6px; border:1px solid #d1d5db;"></textarea>
+            </div>
+            <div style="display:flex; gap:10px; margin-top:20px;">
+                <button onclick="saveEditContour()" class="btn-primary">Сохранить</button>
+                <button onclick="closeEditContourModal()" class="btn-outline">Отмена</button>
+            </div>
+        </div>
+    </div>
+    <script src="Script1.js"></script>
 </body>
 </html>
