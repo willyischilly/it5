@@ -1,4 +1,4 @@
-//  ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ 
+// ========== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ==========
 let currentUser = null;
 let mockTemplates = [];
 let mockRequests = [];
@@ -14,6 +14,7 @@ let activeDeadlineFilter = 'all';
 let availableExecutors = [];
 
 const API_BASE = 'http://localhost:8080/api';
+const MAX_HOURS = 200;
 
 const statusMapping = {
     'pending': 'В планах',
@@ -61,7 +62,7 @@ const deadlineFilterMap = {
     }}
 };
 
-//  API HELPER 
+// ========== API HELPER ==========
 async function apiRequest(endpoint, method, body = null, needAuth = true) {
     const headers = { 'Content-Type': 'application/json' };
     if (needAuth) {
@@ -83,7 +84,7 @@ async function apiRequest(endpoint, method, body = null, needAuth = true) {
 function saveToken(token) { localStorage.setItem('token', token); }
 function clearToken() { localStorage.removeItem('token'); }
 
-//  ЗАГРУЗКА ДАННЫХ 
+// ========== ЗАГРУЗКА ДАННЫХ ==========
 async function loadTemplatesFromServer() {
     try {
         const endpoint = currentUser?.role === 'admin' ? '/admin/works' : '/works';
@@ -119,15 +120,11 @@ async function loadContours() {
 async function loadExecutors() {
     try {
         const executors = await apiRequest('/executors', 'GET');
-        console.log('Данные исполнителей с бэкенда:', executors);
-        
-        availableExecutors = executors.map(e => ({
+        availableExecutors = executors.filter(e => e.role === 'executor').map(e => ({
             id: e.id,
             name: e.name || e.full_name || `${e.last_name || ''} ${e.first_name || ''} ${e.patronymic || ''}`.trim() || e.email,
             email: e.email
         }));
-        
-        console.log('Обработанные исполнители:', availableExecutors);
         return availableExecutors;
     } catch (error) {
         console.error('Ошибка загрузки исполнителей:', error);
@@ -150,7 +147,6 @@ async function loadCustomerRequests() {
             created_at: r.created_at, 
             deadline: r.deadline_at || r.deadline,
             tasks: (r.tasks || []).map(t => {
-                // Получаем имя исполнителя из объекта executor или из отдельного поля
                 let executorName = null;
                 if (t.executor?.name) {
                     executorName = t.executor.name;
@@ -179,14 +175,11 @@ async function loadCustomerRequests() {
         renderCustomerView();
     }
 }
+
 async function loadExecutorTasks() {
     try {
         const tasks = await apiRequest('/tasks', 'GET');
-        console.log('Все задачи из API:', tasks);
-        
-        // Фильтруем задачи только для текущего исполнителя
         const myTasks = tasks.filter(t => t.executor_id === currentUser?.id);
-        console.log('Мои задачи (отфильтрованные):', myTasks);
         
         executorTasks = myTasks.map(t => ({
             id: t.id,
@@ -203,7 +196,6 @@ async function loadExecutorTasks() {
             comment: t.customer_comment || null
         }));
         
-        console.log('executorTasks после обработки:', executorTasks);
         renderExecutorView();
         return executorTasks.filter(t => t.status !== 'Завершено');
     } catch (error) {
@@ -213,11 +205,11 @@ async function loadExecutorTasks() {
     }
 }
 
-//  УПРАВЛЕНИЕ ПОЛЬЗОВАТЕЛЯМИ (АДМИН) 
+// ========== УПРАВЛЕНИЕ ПОЛЬЗОВАТЕЛЯМИ (АДМИН) ==========
 async function loadAdminUsers() {
     try {
         const users = await apiRequest('/admin/users', 'GET');
-        adminUsers = users;
+        adminUsers = users.filter(u => u.id !== currentUser?.id);
         renderAdminUsersList();
     } catch (error) {
         console.error('Ошибка загрузки пользователей:', error);
@@ -235,18 +227,22 @@ function renderAdminUsersList() {
         return;
     }
     
-    container.innerHTML = adminUsers.map(user => `
+    container.innerHTML = adminUsers.map(user => {
+        const isAdmin = user.role === 'admin';
+        return `
         <div class="user-card">
             <div class="user-info-text">
                 <strong>${user.name || user.email}</strong><br>
                 <small>Email: ${user.email} | Роль: ${user.role === 'customer' ? 'Заказчик' : user.role === 'executor' ? 'Исполнитель' : 'Админ'}</small>
             </div>
             <div class="user-actions">
-                <button onclick="showEditUserModal(${user.id}, '${user.email}', '${(user.name || '').replace(/'/g, "\\'")}', '${user.role}')" class="btn-outline">Редактировать</button>
-                <button onclick="deleteAdminUser(${user.id})" class="btn-danger">Удалить</button>
+                ${!isAdmin ? `
+                    <button onclick="showEditUserModal(${user.id}, '${user.email}', '${(user.name || '').replace(/'/g, "\\'")}', '${user.role}')" class="btn-outline">Редактировать</button>
+                    <button onclick="deleteAdminUser(${user.id})" class="btn-danger">Удалить</button>
+                ` : '<span style="color:#999; font-size:12px;">Системный администратор</span>'}
             </div>
         </div>
-    `).join('');
+    `}).join('');
 }
 
 function showCreateUserModal() {
@@ -283,6 +279,10 @@ async function createAdminUser() {
         alert('Пароль должен быть не менее 3 символов');
         return;
     }
+    if (role === 'admin') {
+        alert('Нельзя создать администратора через эту форму');
+        return;
+    }
     
     try {
         await apiRequest('/admin/users', 'POST', { 
@@ -301,14 +301,12 @@ async function createAdminUser() {
     }
 }
 
-
 function showEditUserModal(id, email, fullname, role) {
     document.getElementById('editUserId').value = id;
     document.getElementById('editUserEmail').value = email;
     document.getElementById('editUserRole').value = role;
     document.getElementById('editUserPassword').value = '';
     
-    // Разбираем полное имя на фамилию, имя и отчество
     const nameParts = fullname.trim().split(' ');
     const lastName = nameParts[0] || '';
     const firstName = nameParts[1] || '';
@@ -343,6 +341,14 @@ async function saveEditUser() {
         return;
     }
     
+    // Запрещаем изменение роли админа
+    const user = adminUsers.find(u => u.id == id);
+    if (user?.role === 'admin') {
+        alert('Нельзя редактировать администратора');
+        closeEditUserModal();
+        return;
+    }
+    
     const body = { 
         email, 
         last_name: lastName,
@@ -364,6 +370,16 @@ async function saveEditUser() {
     }
 }
 async function deleteAdminUser(userId) {
+    const user = adminUsers.find(u => u.id === userId);
+    if (user?.role === 'admin') {
+        alert('Нельзя удалить администратора');
+        return;
+    }
+    if (userId == currentUser?.id) {
+        alert('Нельзя удалить самого себя');
+        return;
+    }
+    
     if (!confirm('Удалить пользователя? Это действие необратимо.')) return;
     try {
         await apiRequest(`/admin/users/${userId}`, 'DELETE');
@@ -373,11 +389,11 @@ async function deleteAdminUser(userId) {
         alert('Ошибка: ' + error.message);
     }
 }
-
-//  УПРАВЛЕНИЕ КОНТУРАМИ (АДМИН) 
+// ========== УПРАВЛЕНИЕ КОНТУРАМИ (АДМИН) ==========
 async function loadAdminContours() {
     try {
         const contours = await apiRequest('/admin/contours', 'GET');
+        console.log('Загруженные контуры:', contours);
         adminContours = contours;
         renderAdminContoursList();
     } catch (error) {
@@ -386,7 +402,6 @@ async function loadAdminContours() {
         renderAdminContoursList();
     }
 }
-
 function renderAdminContoursList() {
     const container = document.getElementById('adminContoursList');
     if (!container) return;
@@ -469,7 +484,26 @@ async function saveEditContour() {
     }
 }
 
-//  ЖУРНАЛЫ 
+async function deleteAdminContour(id) {
+    if (!id || isNaN(id)) {
+        alert('Неверный ID контура');
+        return;
+    }
+    
+    if (!confirm(`Удалить контур #${id}? Это действие необратимо.`)) return;
+    
+    try {
+        const response = await apiRequest(`/admin/contours/${id}`, 'DELETE');
+        console.log('Результат удаления:', response);
+        await loadAdminContours();
+        alert('Контур удалён');
+    } catch (error) {
+        console.error('Ошибка удаления:', error);
+        alert('Ошибка: ' + error.message);
+    }
+}
+
+// ========== ЖУРНАЛЫ ==========
 async function loadRequestLogs(limit = 10, requestId = null) {
     try {
         let url = `/admin/request-logs?limit=${limit}`;
@@ -560,7 +594,7 @@ function filterTaskLogs() {
     loadTaskLogs(limit, taskId || null, requestId || null);
 }
 
-//  РЕДАКТИРОВАНИЕ РАБОТ (АДМИН) 
+// ========== РЕДАКТИРОВАНИЕ РАБОТ (АДМИН) ==========
 function editTemplateWork(id, name, description, hours) {
     document.getElementById('editWorkId').value = id;
     document.getElementById('editWorkName').value = name;
@@ -577,10 +611,11 @@ async function saveEditWork() {
     const id = document.getElementById('editWorkId').value;
     const name = document.getElementById('editWorkName').value.trim();
     const description = document.getElementById('editWorkDesc').value.trim();
-    const hours = parseFloat(document.getElementById('editWorkHours').value);
+    let hours = parseFloat(document.getElementById('editWorkHours').value);
     
     if (!name) { alert('Введите название работы'); return; }
     if (isNaN(hours) || hours < 1) { alert('Часы должны быть не менее 1'); return; }
+    if (hours > MAX_HOURS) { alert(`Часы не могут превышать ${MAX_HOURS}`); return; }
     
     try {
         await apiRequest(`/admin/works/${id}`, 'PUT', { name, description, normative_hours: hours });
@@ -592,7 +627,7 @@ async function saveEditWork() {
     }
 }
 
-//  ОТЧЁТЫ 
+// ========== ОТЧЁТЫ ==========
 async function generateReport(requestId, format = 'json') {
     try {
         const request = mockRequests.find(r => r.id === requestId);
@@ -669,10 +704,16 @@ async function generateSummaryReport(format = 'json') {
     }
 }
 
-//  ПРОДЛЕНИЕ ДЕДЛАЙНА 
+// ========== ПРОДЛЕНИЕ ДЕДЛАЙНА ==========
 async function extendDeadline(requestId) {
-    const newDeadline = prompt('Введите новую дату (ГГГГ-ММ-ДД):');
+    const today = new Date().toISOString().split('T')[0];
+    const newDeadline = prompt(`Введите новую дату (ГГГГ-ММ-ДД):\nНе ранее ${today}`);
     if (!newDeadline) return;
+    
+    if (new Date(newDeadline) < new Date(today)) {
+        alert('Дедлайн не может быть раньше сегодняшней даты');
+        return;
+    }
     
     const deadline_at = new Date(newDeadline).toISOString();
     
@@ -685,12 +726,11 @@ async function extendDeadline(requestId) {
     }
 }
 
-//  НАЗНАЧЕНИЕ ИСПОЛНИТЕЛЕЙ 
+// ========== НАЗНАЧЕНИЕ ИСПОЛНИТЕЛЕЙ ==========
 async function assignExecutorToTask(requestId, taskId, executorId) {
     try {
         await apiRequest(`/requests/${requestId}/tasks/${taskId}/assign`, 'PUT', { executor_id: executorId });
         
-        // Обновляем только конкретную заявку в mockRequests
         const updatedRequest = await apiRequest(`/requests/${requestId}`, 'GET');
         const requestIndex = mockRequests.findIndex(r => r.id === requestId);
         
@@ -728,17 +768,14 @@ async function assignExecutorToTask(requestId, taskId, executorId) {
             };
         }
         
-        // Сохраняем состояние развёрнутых блоков
         const expandedState = {};
         document.querySelectorAll('.request-details').forEach(details => {
             const id = details.id.replace('request-details-', '');
             expandedState[id] = details.style.display === 'block';
         });
         
-        // Перерисовываем только изменённую заявку
         renderCustomerView();
         
-        // Восстанавливаем состояние развёрнутых блоков
         Object.keys(expandedState).forEach(id => {
             if (expandedState[id]) {
                 const detailsDiv = document.getElementById(`request-details-${id}`);
@@ -806,7 +843,165 @@ async function confirmAssignExecutor(requestId, taskId) {
     await assignExecutorToTask(requestId, taskId, executorId);
 }
 
-//  КОММЕНТАРИИ 
+// ========== МОДАЛЬНОЕ ОКНО РЕДАКТИРОВАНИЯ ЗАДАЧИ ==========
+let currentEditTask = null;
+
+function showEditTaskModal(requestId, taskId) {
+    const request = mockRequests.find(r => r.id === requestId);
+    if (!request) return;
+    const task = request.tasks.find(t => t.id === taskId);
+    if (!task) return;
+    
+    currentEditTask = { requestId, taskId };
+    
+    const modalHtml = `
+        <div id="editTaskModal" class="modal" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
+            <div class="modal-content" style="max-width: 500px; width: 90%; background: white; border-radius: 12px;">
+                <div style="padding: 20px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center;">
+                    <h3 style="margin: 0;">Редактирование задачи</h3>
+                    <span class="close" onclick="closeEditTaskModal()" style="font-size: 28px; cursor: pointer; color: #999; line-height: 1;">&times;</span>
+                </div>
+                <div style="padding: 20px;">
+                    <div class="task-detail-field" style="margin-bottom: 12px;">
+                        <label style="font-weight: 600; display: block; margin-bottom: 4px;">Название</label>
+                        <div class="value" style="background: #f3f4f6;">${escapeHtml(task.name)}</div>
+                    </div>
+                    <div class="task-detail-field" style="margin-bottom: 12px;">
+                        <label style="font-weight: 600; display: block; margin-bottom: 4px;">Трудоёмкость (часы)</label>
+                        <input type="number" id="editTaskHours" value="${task.hours}" min="1" max="${MAX_HOURS}" step="1" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #d1d5db;">
+                        <small>От 1 до ${MAX_HOURS} часов</small>
+                    </div>
+                    <div class="task-detail-field" style="margin-bottom: 12px;">
+                        <label style="font-weight: 600; display: block; margin-bottom: 4px;">Комментарий</label>
+                        <textarea id="editTaskComment" rows="4" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #d1d5db; resize: vertical;">${escapeHtml(task.comment || '')}</textarea>
+                    </div>
+                    <div class="task-detail-field" style="margin-bottom: 12px;">
+                        <label style="font-weight: 600; display: block; margin-bottom: 4px;">Исполнитель</label>
+                        <select id="editTaskExecutor" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #d1d5db;">
+                            <option value="">Не назначен</option>
+                            ${availableExecutors.map(e => `<option value="${e.id}" ${task.executor_id === e.id ? 'selected' : ''}>${escapeHtml(e.name)} (${e.email})</option>`).join('')}
+                        </select>
+                    </div>
+                    <div style="display:flex; gap:10px; margin-top:20px;">
+                        <button onclick="saveEditTask()" class="btn-primary" style="flex:1;">Сохранить</button>
+                        <button onclick="closeEditTaskModal()" class="btn-outline" style="flex:1;">Отмена</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    const oldModal = document.getElementById('editTaskModal');
+    if (oldModal) oldModal.remove();
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+}
+
+function closeEditTaskModal() {
+    const modal = document.getElementById('editTaskModal');
+    if (modal) modal.remove();
+    currentEditTask = null;
+}
+
+async function saveEditTask() {
+    if (!currentEditTask) return;
+    
+    const newHours = parseInt(document.getElementById('editTaskHours').value);
+    const newComment = document.getElementById('editTaskComment').value.trim();
+    const newExecutorId = document.getElementById('editTaskExecutor').value;
+    
+    if (isNaN(newHours) || newHours < 1 || newHours > MAX_HOURS) {
+        alert(`Трудоёмкость должна быть от 1 до ${MAX_HOURS} часов`);
+        return;
+    }
+    
+    const request = mockRequests.find(r => r.id === currentEditTask.requestId);
+    if (!request) return;
+    const task = request.tasks.find(t => t.id === currentEditTask.taskId);
+    if (!task) return;
+    
+    task.hours = newHours;
+    task.comment = newComment || null;
+    
+    if (newExecutorId) {
+        task.executor_id = parseInt(newExecutorId);
+        const executor = availableExecutors.find(e => e.id === parseInt(newExecutorId));
+        task.executor_name = executor?.name || null;
+        await assignExecutorToTask(currentEditTask.requestId, currentEditTask.taskId, parseInt(newExecutorId));
+    }
+    
+    request.totalHours = request.tasks.reduce((sum, t) => sum + t.hours, 0);
+    
+    closeEditTaskModal();
+    renderCustomerView();
+    alert('Задача обновлена');
+}
+
+// ========== МОДАЛЬНОЕ ОКНО ДОБАВЛЕНИЯ КОММЕНТАРИЯ ==========
+let currentCommentTask = null;
+
+function showCommentModal(requestId, taskId) {
+    currentCommentTask = { requestId, taskId };
+    
+    const modalHtml = `
+        <div id="commentModal" class="modal" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
+            <div class="modal-content" style="max-width: 500px; width: 90%; background: white; border-radius: 12px;">
+                <div style="padding: 20px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center;">
+                    <h3 style="margin: 0;">Добавить комментарий к задаче</h3>
+                    <span class="close" onclick="closeCommentModal()" style="font-size: 28px; cursor: pointer; color: #999; line-height: 1;">&times;</span>
+                </div>
+                <div style="padding: 20px;">
+                    <div class="task-detail-field" style="margin-bottom: 12px;">
+                        <label style="font-weight: 600; display: block; margin-bottom: 4px;">Комментарий</label>
+                        <textarea id="commentText" rows="4" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #d1d5db; resize: vertical;" placeholder="Введите комментарий..."></textarea>
+                    </div>
+                    <div style="display:flex; gap:10px; margin-top:20px;">
+                        <button onclick="saveComment()" class="btn-primary" style="flex:1;">Сохранить</button>
+                        <button onclick="closeCommentModal()" class="btn-outline" style="flex:1;">Отмена</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    const oldModal = document.getElementById('commentModal');
+    if (oldModal) oldModal.remove();
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+}
+
+function closeCommentModal() {
+    const modal = document.getElementById('commentModal');
+    if (modal) modal.remove();
+    currentCommentTask = null;
+}
+
+async function saveComment() {
+    if (!currentCommentTask) return;
+    
+    const comment = document.getElementById('commentText').value.trim();
+    if (!comment) {
+        alert('Введите комментарий');
+        return;
+    }
+    
+    const request = mockRequests.find(r => r.id === currentCommentTask.requestId);
+    if (request) {
+        const task = request.tasks.find(t => t.id === currentCommentTask.taskId);
+        if (task) {
+            task.comment = comment;
+            try {
+                await apiRequest(`/requests/${currentCommentTask.requestId}/tasks/${currentCommentTask.taskId}/comment`, 'PUT', { comment });
+            } catch (error) {
+                console.warn('Бэкенд не поддерживает комментарии');
+            }
+        }
+    }
+    
+    closeCommentModal();
+    renderCustomerView();
+    alert('Комментарий добавлен');
+}
+
+// ========== КОММЕНТАРИИ ==========
 function truncateComment(comment, maxLength = 150) {
     if (!comment) return '';
     if (comment.length <= maxLength) return comment;
@@ -818,20 +1013,9 @@ function getDisplayComment(task) {
     return truncateComment(task.comment, 150);
 }
 
-//  РЕДАКТИРОВАНИЕ ЗАДАЧ 
+// ========== РЕДАКТИРОВАНИЕ ЗАДАЧ (СТАРЫЙ МЕТОД - ЗАМЕНЁН) ==========
 function editTask(requestId, taskId) {
-    const request = mockRequests.find(r => r.id === requestId);
-    if (!request) return;
-    const task = request.tasks.find(t => t.id === taskId);
-    if (!task) return;
-    
-    const newHours = prompt(`Изменить трудоёмкость задачи "${task.name}" (часы):`, task.hours);
-    if (newHours && !isNaN(newHours) && parseFloat(newHours) > 0) {
-        task.hours = parseFloat(newHours);
-        request.totalHours = request.tasks.reduce((sum, t) => sum + t.hours, 0);
-        renderCustomerView();
-        alert('Трудоёмкость обновлена');
-    }
+    showEditTaskModal(requestId, taskId);
 }
 
 async function deleteTaskFromRequest(requestId, taskId) {
@@ -909,7 +1093,7 @@ async function addTasksToRequest(requestId, worksData) {
     }
 }
 
-//  РЕГИСТРАЦИЯ 
+// ========== РЕГИСТРАЦИЯ ==========
 function showRegistrationModal() {
     document.getElementById('regEmail').value = '';
     document.getElementById('regLastName').value = '';
@@ -947,7 +1131,6 @@ async function registerUser() {
     }
     
     try {
-        // Отправляем отдельные поля, а не одно name
         const data = await apiRequest('/register', 'POST', { 
             email, 
             last_name: lastName,
@@ -974,7 +1157,7 @@ async function registerUser() {
     }
 }
 
-//  АВТОРИЗАЦИЯ 
+// ========== АВТОРИЗАЦИЯ ==========
 async function login(email, password) {
     if (!email.includes('@')) { alert('Введите корректный email'); return false; }
     try {
@@ -1028,7 +1211,7 @@ function logout() {
     document.getElementById('executorPanel').style.display = 'none';
 }
 
-//  АДМИН 
+// ========== АДМИН ==========
 async function renderAdminPanel() {
     document.querySelectorAll('.admin-tab').forEach(btn => {
         btn.onclick = async () => {
@@ -1068,9 +1251,10 @@ function renderTemplatesList() {
 async function addTemplateWork() {
     const name = document.getElementById('newTaskName')?.value.trim();
     const desc = document.getElementById('newTaskDesc')?.value.trim();
-    const hours = parseFloat(document.getElementById('newTaskHours')?.value);
+    let hours = parseFloat(document.getElementById('newTaskHours')?.value);
     if (!name || !desc) { alert('Заполните название и описание работы'); return; }
     if (isNaN(hours) || hours < 1) { alert('Нормативные часы должны быть не менее 1'); return; }
+    if (hours > MAX_HOURS) { alert(`Часы не могут превышать ${MAX_HOURS}`); return; }
     try {
         await apiRequest('/admin/works', 'POST', { name, description: desc, normative_hours: hours });
         await loadTemplatesFromServer();
@@ -1094,7 +1278,7 @@ async function deleteTemplate(id) {
     }
 }
 
-//  ЗАКАЗЧИК 
+// ========== ЗАКАЗЧИК ==========
 function renderCustomerView() {
     renderActiveTasksForCustomer();
     renderNewRequestForm();
@@ -1140,6 +1324,9 @@ function renderActiveTasksForCustomer() {
     container.innerHTML = sortedRequests.map(req => {
         const tasksHtml = req.tasks.map(task => {
             const displayComment = getDisplayComment(task);
+            const canEdit = (req.status === 'Черновик' || req.status === 'В планах' || req.status === 'Отправлена') && task.status === 'В планах';
+            const canAddComment = (req.status === 'Черновик' || req.status === 'В планах' || req.status === 'Отправлена') && task.status === 'В планах';
+            
             return `
                 <div class="task-card">
                     <div class="task-header">
@@ -1161,14 +1348,12 @@ function renderActiveTasksForCustomer() {
                     ` : ''}
                     <div style="margin-top:10px;">
                         <button onclick="showTaskDetailForCustomer(${req.id}, ${task.id})" class="btn-outline" style="padding:4px 12px; font-size:12px;">Детали задачи</button>
-                        ${req.status === 'Черновик' ? `
-                            ${!task.executor_id ? `<button onclick="showAssignExecutorModal(${req.id}, ${task.id}, ${task.executor_id || 'null'})" class="btn-outline" style="margin-left:8px; padding:4px 12px; font-size:12px;">Назначить исполнителя</button>` : ''}
+                        ${canEdit ? `
                             <button onclick="editTask(${req.id}, ${task.id})" class="btn-outline" style="margin-left:8px; padding:4px 12px; font-size:12px;">Редактировать</button>
                             <button onclick="deleteTaskFromRequest(${req.id}, ${task.id})" class="btn-danger" style="margin-left:8px; padding:4px 12px; font-size:12px;">Удалить задачу</button>
                         ` : ''}
-                        ${req.status === 'Отправлена' && task.status === 'В планах' && task.executor_id ? `
-                            <button onclick="editTask(${req.id}, ${task.id})" class="btn-outline" style="margin-left:8px; padding:4px 12px; font-size:12px;">Редактировать</button>
-                            <button onclick="deleteTaskFromRequest(${req.id}, ${task.id})" class="btn-danger" style="margin-left:8px; padding:4px 12px; font-size:12px;">Удалить задачу</button>
+                        ${canAddComment && !task.comment ? `
+                            <button onclick="showCommentModal(${req.id}, ${task.id})" class="btn-outline" style="margin-left:8px; padding:4px 12px; font-size:12px;">Добавить комментарий</button>
                         ` : ''}
                     </div>
                 </div>
@@ -1178,30 +1363,30 @@ function renderActiveTasksForCustomer() {
         return `
             <div class="request-item" data-request-id="${req.id}">
                 <div class="request-header" onclick="toggleRequestDetails(${req.id})" style="cursor:pointer;">
-    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
-        <div>
-            <strong>Заявка ${req.id}</strong>
-            <span class="request-title">${escapeHtml(req.title || '')}</span>
-            ${req.deadline ? `<span class="deadline-badge">до ${new Date(req.deadline).toLocaleDateString()}</span>` : ''}
-        </div>
-        <div>
-            <span>Контур: ${escapeHtml(req.contour || '')}</span>
-            <span class="status-badge 
-                ${req.status === 'Черновик' ? 'status-draft' : 
-                  req.status === 'В планах' ? 'status-planned' : 
-                  req.status === 'В работе' ? 'status-progress' : 
-                  req.status === 'Просрочена' ? 'status-overdue' : 
-                  req.status === 'Завершено' ? 'status-done' : ''}
-            " style="margin-left:10px;">${req.status}</span>
-        </div>
-    </div>
-    <div style="margin-top:5px; font-size:12px; color:#666;">
-        <span>Общее время: ${req.totalHours || 0} ч</span>
-    </div>
-    <div class="expand-icon" style="font-size:12px; margin-top:5px;">
-        ▼ Развернуть
-    </div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+                        <div>
+    <strong style="font-size: 16px;">${escapeHtml(req.title || '')}</strong>
+    <span class="request-title" style="font-size: 13px; color: #666;">Заявка №${req.id}</span>
+    ${req.deadline ? `<span class="deadline-badge">до ${new Date(req.deadline).toLocaleDateString()}</span>` : ''}
 </div>
+                        <div>
+                            <span>Контур: ${escapeHtml(req.contour || '')}</span>
+                            <span class="status-badge 
+                                ${req.status === 'Черновик' ? 'status-draft' : 
+                                  req.status === 'В планах' ? 'status-planned' : 
+                                  req.status === 'В работе' ? 'status-progress' : 
+                                  req.status === 'Просрочена' ? 'status-overdue' : 
+                                  req.status === 'Завершено' ? 'status-done' : ''}
+                            " style="margin-left:10px;">${req.status}</span>
+                        </div>
+                    </div>
+                    <div style="margin-top:5px; font-size:12px; color:#666;">
+                        <span>Общее время: ${req.totalHours || 0} ч</span>
+                    </div>
+                    <div class="expand-icon" style="font-size:12px; margin-top:5px;">
+                        ▼ Развернуть
+                    </div>
+                </div>
                 <div id="request-details-${req.id}" class="request-details" style="display:none; margin-top:15px;">
                     <div class="request-info-block" style="background:#f0f0f0; padding:12px; border-radius:8px; margin-bottom:15px;">
                         <strong>Информация о заявке</strong><br>
@@ -1258,6 +1443,8 @@ function renderNewRequestForm() {
         return;
     }
     
+    const today = new Date().toISOString().split('T')[0];
+    
     container.innerHTML = mockTemplates.map(t => `
         <div class="work-item" style="margin: 12px 0; padding: 10px; background: #f9fafb; border-radius: 8px;">
             <label style="display: flex; align-items: flex-start; gap: 12px;">
@@ -1271,13 +1458,18 @@ function renderNewRequestForm() {
                         placeholder="Комментарий к задаче (необязательно)"
                         style="width: 100%; margin-top: 8px; padding: 6px; border-radius: 4px; border: 1px solid #d1d5db; font-size: 12px; font-family: inherit; resize: vertical;"></textarea>
                     <select class="work-executor" data-work-id="${t.id}" style="width: 100%; margin-top: 8px; padding: 6px; border-radius: 4px; border: 1px solid #d1d5db;">
-                    <option value="">Не назначен</option>
-                    ${availableExecutors.map(e => `<option value="${e.id}">${escapeHtml(e.name)} (${e.email})</option>`).join('')}
-                </select>
+                        <option value="">Не назначен</option>
+                        ${availableExecutors.map(e => `<option value="${e.id}">${escapeHtml(e.name)} (${e.email})</option>`).join('')}
+                    </select>
                 </div>
             </label>
         </div>
     `).join('');
+    
+    const deadlineInput = document.getElementById('deadlineDate');
+    if (deadlineInput) {
+        deadlineInput.min = today;
+    }
 }
 
 function escapeHtml(str) {
@@ -1297,6 +1489,12 @@ async function createRequest() {
     
     const deadlineDate = document.getElementById('deadlineDate')?.value;
     if (!deadlineDate) { alert('Укажите срок выполнения (дедлайн)'); return; }
+    
+    const today = new Date().toISOString().split('T')[0];
+    if (deadlineDate < today) {
+        alert('Дедлайн не может быть раньше сегодняшней даты');
+        return;
+    }
     
     const deadline_at = new Date(deadlineDate).toISOString();
     
@@ -1463,7 +1661,7 @@ async function deleteRequest(requestId) {
     }
 }
 
-//  ИСПОЛНИТЕЛЬ 
+// ========== ИСПОЛНИТЕЛЬ ==========
 function renderExecutorView() {
     renderActiveTasksForExecutor();
 }
@@ -1564,8 +1762,8 @@ function renderActiveTasksForExecutor() {
                 <div class="request-header" onclick="toggleExecutorRequestDetails(${req.requestId})" style="cursor:pointer;">
                     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
                         <div>
-                            <strong>Заявка ${req.requestId}</strong>
-                            <span class="request-title">${escapeHtml(req.title)}</span>
+                            <strong style="font-size: 16px;">${escapeHtml(req.title)}</strong>
+                            <span class="request-title" style="font-size: 13px; color: #666;">Заявка №${req.requestId}</span>
                             ${req.deadline ? `<span class="deadline-badge ${new Date(req.deadline) < new Date() && req.status !== 'Завершено' ? 'deadline-overdue' : ''}">до ${new Date(req.deadline).toLocaleDateString()}</span>` : ''}
                         </div>
                         <div>
@@ -1589,8 +1787,8 @@ function renderActiveTasksForExecutor() {
                         <strong>Информация о заявке</strong><br>
                         <span>Название: ${escapeHtml(req.title)}</span><br>
                         <span>Дедлайн: ${req.deadline ? new Date(req.deadline).toLocaleDateString() : '—'}</span><br>
-                    <span>Контур: ${escapeHtml(req.contour)}${req.contour_description ? ` (${escapeHtml(req.contour_description)})` : ''}</span><br>
-                    <span>Статус: ${req.status}</span>
+                        <span>Контур: ${escapeHtml(req.contour)}${req.contour_description ? ` (${escapeHtml(req.contour_description)})` : ''}</span><br>
+                        <span>Статус: ${req.status}</span>
                     </div>
                     <div class="tasks-list">
                         <h4>Задачи:</h4>
@@ -1696,6 +1894,7 @@ function showTaskDetailForExecutor(requestId, taskId) {
     
     document.body.insertAdjacentHTML('beforeend', modalHtml);
 }
+
 function closeTaskDetailModal() {
     const modal = document.getElementById('taskDetailModal');
     if (modal) modal.remove();
@@ -1846,7 +2045,7 @@ function closeRequestDetailModal() {
     document.getElementById('requestDetailModal').style.display = 'none';
 }
 
-//  ВСПОМОГАТЕЛЬНЫЕ 
+// ========== ВСПОМОГАТЕЛЬНЫЕ ==========
 function initTabs() {
     document.querySelectorAll('.tab-btn:not(.admin-tab)').forEach(btn => {
         btn.onclick = () => {
@@ -1880,7 +2079,7 @@ async function restoreSession() {
     }
 }
 
-//  ЗАПУСК 
+// ========== ЗАПУСК ==========
 restoreSession();
 
 const loginForm = document.getElementById('loginForm');
