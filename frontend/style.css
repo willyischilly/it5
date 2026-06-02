@@ -36,14 +36,12 @@ header {
 
 .logo-icon {
     font-size: 28px;
-    background: #ed1c24;
-    width: 44px;
-    height: 44px;
-    border-radius: 8px;
+    background: transparent;
+    width: auto;
+    height: auto;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: white;
 }
 
 .logo-text {
