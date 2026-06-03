@@ -17,6 +17,7 @@ type AdminService struct {
 	users       *repositories.UserRepository
 	works       *repositories.WorkRepository
 	contours    *repositories.ContourRepository
+	requests    *repositories.RequestRepository
 	tasks       *repositories.TaskRepository
 	requestLogs *repositories.RequestLogRepository
 }
@@ -25,12 +26,13 @@ func NewAdminService(
 	users *repositories.UserRepository,
 	works *repositories.WorkRepository,
 	contours *repositories.ContourRepository,
+	requests *repositories.RequestRepository,
 	tasks *repositories.TaskRepository,
 	requestLogs *repositories.RequestLogRepository,
 ) *AdminService {
 	return &AdminService{
 		users: users, works: works, contours: contours,
-		tasks: tasks, requestLogs: requestLogs,
+		requests: requests, tasks: tasks, requestLogs: requestLogs,
 	}
 }
 
@@ -196,6 +198,9 @@ func (s *AdminService) DeleteUser(id uint) error {
 	}
 	if user.Role == models.RoleAdmin {
 		return errors.New("cannot delete admin user")
+	}
+	if err := s.requests.DeleteAllByCustomerID(id); err != nil {
+		return err
 	}
 	if err := s.tasks.ClearExecutorAssignments(id); err != nil {
 		return err

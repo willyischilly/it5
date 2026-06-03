@@ -24,7 +24,7 @@ func NewRouter(cfg *config.Config, db *gorm.DB) (*gin.Engine, *services.AuthServ
 
 	authSvc := services.NewAuthService(userRepo, cfg)
 	auditSvc := services.NewAuditService(requestLogRepo)
-	adminSvc := services.NewAdminService(userRepo, workRepo, contourRepo, taskRepo, requestLogRepo)
+	adminSvc := services.NewAdminService(userRepo, workRepo, contourRepo, requestRepo, taskRepo, requestLogRepo)
 	customerSvc := services.NewCustomerService(requestRepo, taskRepo, workRepo, contourRepo, userRepo, auditSvc)
 	executorSvc := services.NewExecutorService(taskRepo, requestRepo, auditSvc)
 

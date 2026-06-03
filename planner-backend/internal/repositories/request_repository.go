@@ -129,3 +129,29 @@ func (r *RequestRepository) DeleteByID(id uint) error {
 		return nil
 	})
 }
+
+func (r *RequestRepository) DeleteAllByCustomerID(customerID uint) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		var requestIDs []uint
+		if err := tx.Model(&models.Request{}).Where("customer_id = ?", customerID).
+			Pluck("id", &requestIDs).Error; err != nil {
+			return err
+		}
+		if len(requestIDs) == 0 {
+			return nil
+		}
+		if err := tx.Exec(
+			`DELETE FROM task_logs WHERE task_id IN (SELECT id FROM tasks WHERE request_id IN ?)`,
+			requestIDs,
+		).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("request_id IN ?", requestIDs).Delete(&models.Task{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("request_id IN ?", requestIDs).Delete(&models.RequestLog{}).Error; err != nil {
+			return err
+		}
+		return tx.Where("customer_id = ?", customerID).Delete(&models.Request{}).Error
+	})
+}
