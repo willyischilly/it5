@@ -11,7 +11,14 @@ let taskLogs = [];
 let isSubmitting = false;
 let activeContourFilter = null;
 let activeDeadlineFilter = 'all';
+let activeTaskStatusFilter = 'all';
 let availableExecutors = [];
+
+// Для фильтров у заказчика
+let customerStatusFilter = 'all';
+let customerExecutorFilter = 'all';
+let customerContourFilter = 'all';
+let customerSortOrder = 'asc';
 
 const API_BASE = 'http://localhost:8080/api';
 const MAX_HOURS = 200;
@@ -59,6 +66,11 @@ const deadlineFilterMap = {
         const endOfWeek = new Date(now);
         endOfWeek.setDate(now.getDate() + (7 - now.getDay()));
         return date > endOfWeek;
+    }},
+    'overdue': { label: 'Просрочено', filter: (date) => {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        return date < today;
     }}
 };
 
@@ -123,7 +135,10 @@ async function loadExecutors() {
         availableExecutors = executors.filter(e => e.role === 'executor').map(e => ({
             id: e.id,
             name: e.name || e.full_name || `${e.last_name || ''} ${e.first_name || ''} ${e.patronymic || ''}`.trim() || e.email,
-            email: e.email
+            email: e.email,
+            last_name: e.last_name,
+            first_name: e.first_name,
+            patronymic: e.patronymic
         }));
         return availableExecutors;
     } catch (error) {
@@ -169,6 +184,7 @@ async function loadCustomerRequests() {
             })
         }));
         renderCustomerView();
+        renderFiltersAndMetrics();
     } catch (error) {
         console.error('Ошибка загрузки заявок:', error);
         mockRequests = [];
@@ -229,15 +245,16 @@ function renderAdminUsersList() {
     
     container.innerHTML = adminUsers.map(user => {
         const isAdmin = user.role === 'admin';
+        const fullName = [user.last_name, user.first_name, user.patronymic].filter(Boolean).join(' ') || user.name || user.email;
         return `
         <div class="user-card">
             <div class="user-info-text">
-                <strong>${user.name || user.email}</strong><br>
+                <strong>${escapeHtml(fullName)}</strong><br>
                 <small>Email: ${user.email} | Роль: ${user.role === 'customer' ? 'Заказчик' : user.role === 'executor' ? 'Исполнитель' : 'Админ'}</small>
             </div>
             <div class="user-actions">
                 ${!isAdmin ? `
-                    <button onclick="showEditUserModal(${user.id}, '${user.email}', '${(user.name || '').replace(/'/g, "\\'")}', '${user.role}')" class="btn-outline">Редактировать</button>
+                    <button onclick="showEditUserModal(${user.id}, '${user.email}', '${escapeHtml(fullName)}', '${user.role}')" class="btn-outline">Редактировать</button>
                     <button onclick="deleteAdminUser(${user.id})" class="btn-danger">Удалить</button>
                 ` : '<span style="color:#999; font-size:12px;">Системный администратор</span>'}
             </div>
@@ -341,7 +358,6 @@ async function saveEditUser() {
         return;
     }
     
-    // Запрещаем изменение роли админа
     const user = adminUsers.find(u => u.id == id);
     if (user?.role === 'admin') {
         alert('Нельзя редактировать администратора');
@@ -369,6 +385,7 @@ async function saveEditUser() {
         alert('Ошибка: ' + error.message);
     }
 }
+
 async function deleteAdminUser(userId) {
     const user = adminUsers.find(u => u.id === userId);
     if (user?.role === 'admin') {
@@ -389,11 +406,11 @@ async function deleteAdminUser(userId) {
         alert('Ошибка: ' + error.message);
     }
 }
+
 // ========== УПРАВЛЕНИЕ КОНТУРАМИ (АДМИН) ==========
 async function loadAdminContours() {
     try {
         const contours = await apiRequest('/admin/contours', 'GET');
-        console.log('Загруженные контуры:', contours);
         adminContours = contours;
         renderAdminContoursList();
     } catch (error) {
@@ -402,6 +419,7 @@ async function loadAdminContours() {
         renderAdminContoursList();
     }
 }
+
 function renderAdminContoursList() {
     const container = document.getElementById('adminContoursList');
     if (!container) return;
@@ -493,12 +511,10 @@ async function deleteAdminContour(id) {
     if (!confirm(`Удалить контур #${id}? Это действие необратимо.`)) return;
     
     try {
-        const response = await apiRequest(`/admin/contours/${id}`, 'DELETE');
-        console.log('Результат удаления:', response);
+        await apiRequest(`/admin/contours/${id}`, 'DELETE');
         await loadAdminContours();
         alert('Контур удалён');
     } catch (error) {
-        console.error('Ошибка удаления:', error);
         alert('Ошибка: ' + error.message);
     }
 }
@@ -1231,6 +1247,7 @@ async function renderAdminPanel() {
     });
     
     renderTemplatesList();
+    await loadAdminContours();
 }
 
 function renderTemplatesList() {
@@ -1277,14 +1294,6 @@ async function deleteTemplate(id) {
         alert('Ошибка удаления: ' + error.message);
     }
 }
-
-// ========== ЗАКАЗЧИК ==========
-function renderCustomerView() {
-    renderActiveTasksForCustomer();
-    renderNewRequestForm();
-    renderSummaryReportButton();
-}
-
 function renderSummaryReportButton() {
     const container = document.getElementById('customerRequests');
     if (!container) return;
@@ -1301,25 +1310,219 @@ function renderSummaryReportButton() {
     container.insertAdjacentHTML('beforebegin', btnHtml);
 }
 
+// ========== ЗАКАЗЧИК ==========
+function renderCustomerView() {
+    renderActiveTasksForCustomer();  // сначала заявки
+    renderNewRequestForm();
+    renderSummaryReportButton();
+    renderFiltersAndMetrics();  // потом метрики и фильтры
+}
+
+function renderFiltersAndMetrics() {
+    const container = document.getElementById('customerRequests');
+    if (!container) return;
+    
+    // Уникальные контуры и исполнители для фильтров
+    const contours = [...new Set(mockRequests.map(r => r.contour).filter(c => c && c !== '-'))];
+    const executors = [...new Set(mockRequests.flatMap(r => r.tasks.map(t => t.executor_name)).filter(e => e))];
+    
+    const filterHtml = `
+        <div class="filter-section" style="margin-bottom:20px; padding:12px; background:#f9fafb; border-radius:8px; display:flex; gap:16px; flex-wrap:wrap; align-items:flex-end;">
+            <div>
+                <label style="font-weight:500;">Статус заявки:</label>
+                <select id="customerStatusFilter" onchange="applyCustomerFilters()" style="padding:6px 12px; border-radius:6px; border:1px solid #d1d5db; margin-left:8px;">
+                    <option value="all">Все</option>
+                    <option value="Черновик">Черновик</option>
+                    <option value="Отправлена">Отправлена</option>
+                    <option value="В работе">В работе</option>
+                    <option value="Просрочена">Просрочена</option>
+                    <option value="Завершено">Завершено</option>
+                </select>
+            </div>
+            <div>
+                <label style="font-weight:500;">Исполнитель:</label>
+                <select id="customerExecutorFilter" onchange="applyCustomerFilters()" style="padding:6px 12px; border-radius:6px; border:1px solid #d1d5db; margin-left:8px;">
+                    <option value="all">Все</option>
+                    ${executors.map(e => `<option value="${e}">${e}</option>`).join('')}
+                </select>
+            </div>
+            <div>
+                <label style="font-weight:500;">Контур:</label>
+                <select id="customerContourFilter" onchange="applyCustomerFilters()" style="padding:6px 12px; border-radius:6px; border:1px solid #d1d5db; margin-left:8px;">
+                    <option value="all">Все</option>
+                    ${contours.map(c => `<option value="${c}">${c}</option>`).join('')}
+                </select>
+            </div>
+            <div>
+                <label style="font-weight:500;">Сортировка по дедлайну:</label>
+                <select id="customerSortOrder" onchange="applyCustomerFilters()" style="padding:6px 12px; border-radius:6px; border:1px solid #d1d5db; margin-left:8px;">
+                    <option value="none">Без сортировки</option>
+                    <option value="asc">Сначала ближайшие</option>
+                    <option value="desc">Сначала дальние</option>
+                </select>
+            </div>
+        </div>
+    `;
+    
+    // Метрики
+    const totalRequests = mockRequests.length;
+    const completedRequests = mockRequests.filter(r => r.status === 'Завершено').length;
+    const inProgressRequests = mockRequests.filter(r => r.status === 'В работе').length;
+    const draftRequests = mockRequests.filter(r => r.status === 'Черновик').length;
+    const overdueRequests = mockRequests.filter(r => r.status === 'Просрочена').length;
+    
+    const allTasks = mockRequests.flatMap(r => r.tasks);
+    const totalTasks = allTasks.length;
+    const completedTasks = allTasks.filter(t => t.status === 'Завершено').length;
+    const inProgressTasks = allTasks.filter(t => t.status === 'В работе').length;
+    const plannedTasks = allTasks.filter(t => t.status === 'В планах').length;
+    
+    // Статистика по исполнителям
+    const executorStats = {};
+    allTasks.forEach(task => {
+        if (task.executor_name) {
+            if (!executorStats[task.executor_name]) {
+                executorStats[task.executor_name] = { tasks: 0, hours: 0 };
+            }
+            executorStats[task.executor_name].tasks++;
+            executorStats[task.executor_name].hours += task.hours;
+        }
+    });
+    
+    const metricsHtml = `
+        <div id="metricsPanel" style="margin-bottom:20px; padding:12px; background:#fff; border-radius:8px; border:1px solid #e0e0e0;">
+            <h3>📊 Метрики</h3>
+            <div style="display:flex; flex-wrap:wrap; gap:20px; margin-top:10px;">
+                <div style="flex:1; min-width:200px;">
+                    <canvas id="requestsChart" width="200" height="200" style="max-width:200px; max-height:200px;"></canvas>
+                    <p style="text-align:center">Заявки: всего ${totalRequests}</p>
+                </div>
+                <div style="flex:1; min-width:200px;">
+                    <canvas id="tasksChart" width="200" height="200" style="max-width:200px; max-height:200px;"></canvas>
+                    <p style="text-align:center">Задачи: всего ${totalTasks}</p>
+                </div>
+                <div style="flex:2; min-width:250px;">
+                    <h4>Задачи по исполнителям</h4>
+                    <table class="data-table" style="width:100%">
+                        <thead>
+                            <tr><th>Исполнитель</th><th>Задач</th><th>Часов</th></tr>
+                        </thead>
+                        <tbody>
+                            ${Object.entries(executorStats).map(([name, stats]) => `
+                                <tr><td>${escapeHtml(name)}</td><td>${stats.tasks}</td><td>${stats.hours}</td></tr>
+                            `).join('')}
+                            ${Object.keys(executorStats).length === 0 ? '<tr><td colspan="3">Нет данных</td></tr>' : ''}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    const existingMetrics = document.getElementById('metricsPanel');
+    if (existingMetrics) existingMetrics.remove();
+    container.insertAdjacentHTML('beforebegin', metricsHtml);
+    
+    // Рисуем диаграммы
+    setTimeout(() => {
+        if (typeof Chart !== 'undefined') {
+            const requestsCtx = document.getElementById('requestsChart')?.getContext('2d');
+            if (requestsCtx) {
+                new Chart(requestsCtx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['Завершено', 'В работе', 'Черновик', 'Просрочено'],
+                        datasets: [{
+                            data: [completedRequests, inProgressRequests, draftRequests, overdueRequests],
+                            backgroundColor: ['#059669', '#dbeafe', '#e0e7ff', '#fee2e2'],
+                            borderColor: '#fff',
+                            borderWidth: 2
+                        }]
+                    },
+                    options: { responsive: true, maintainAspectRatio: true }
+                });
+            }
+            const tasksCtx = document.getElementById('tasksChart')?.getContext('2d');
+            if (tasksCtx) {
+                new Chart(tasksCtx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['Завершено', 'В работе', 'В планах'],
+                        datasets: [{
+                            data: [completedTasks, inProgressTasks, plannedTasks],
+                            backgroundColor: ['#059669', '#dbeafe', '#e5e7eb'],
+                            borderColor: '#fff',
+                            borderWidth: 2
+                        }]
+                    },
+                    options: { responsive: true, maintainAspectRatio: true }
+                });
+            }
+        } else {
+            console.warn('Chart.js не загружен. Добавьте <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script> в HTML');
+        }
+    }, 50);
+    
+    const filterDiv = document.getElementById('customerFilterSection');
+    if (filterDiv) filterDiv.remove();
+    container.insertAdjacentHTML('beforebegin', filterHtml);
+    document.getElementById('customerFilterSection')?.remove();
+    const filterSection = document.querySelector('.filter-section');
+    if (filterSection) filterSection.id = 'customerFilterSection';
+}
+
+function applyCustomerFilters() {
+    customerStatusFilter = document.getElementById('customerStatusFilter')?.value || 'all';
+    customerExecutorFilter = document.getElementById('customerExecutorFilter')?.value || 'all';
+    customerContourFilter = document.getElementById('customerContourFilter')?.value || 'all';
+    customerSortOrder = document.getElementById('customerSortOrder')?.value || 'none';
+    renderActiveTasksForCustomer();
+}
+
+function getFilteredAndSortedRequests() {
+    let filtered = [...mockRequests];
+    
+    if (customerStatusFilter !== 'all') {
+        filtered = filtered.filter(r => r.status === customerStatusFilter);
+    }
+    
+    if (customerContourFilter !== 'all') {
+        filtered = filtered.filter(r => r.contour === customerContourFilter);
+    }
+    
+    if (customerExecutorFilter !== 'all') {
+        filtered = filtered.filter(r => 
+            r.tasks.some(t => t.executor_name === customerExecutorFilter)
+        );
+    }
+    
+    if (customerSortOrder === 'asc') {
+        filtered.sort((a, b) => {
+            if (!a.deadline) return 1;
+            if (!b.deadline) return -1;
+            return new Date(a.deadline) - new Date(b.deadline);
+        });
+    } else if (customerSortOrder === 'desc') {
+        filtered.sort((a, b) => {
+            if (!a.deadline) return -1;
+            if (!b.deadline) return 1;
+            return new Date(b.deadline) - new Date(a.deadline);
+        });
+    }
+    
+    return filtered;
+}
+
 function renderActiveTasksForCustomer() {
     const container = document.getElementById('customerRequests');
     if (!container) return;
     
-    if (mockRequests.length === 0) {
+    const sortedRequests = getFilteredAndSortedRequests();
+    
+    if (sortedRequests.length === 0) {
         container.innerHTML = '<div class="empty-state">Нет активных заявок</div>';
         return;
     }
-    
-    const sortedRequests = [...mockRequests].sort((a, b) => {
-        if (a.status === 'Завершено' && b.status !== 'Завершено') return 1;
-        if (a.status !== 'Завершено' && b.status === 'Завершено') return -1;
-        if (a.deadline && b.deadline) {
-            return new Date(a.deadline) - new Date(b.deadline);
-        }
-        if (a.deadline && !b.deadline) return -1;
-        if (!a.deadline && b.deadline) return 1;
-        return 0;
-    });
     
     container.innerHTML = sortedRequests.map(req => {
         const tasksHtml = req.tasks.map(task => {
@@ -1365,10 +1568,10 @@ function renderActiveTasksForCustomer() {
                 <div class="request-header" onclick="toggleRequestDetails(${req.id})" style="cursor:pointer;">
                     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
                         <div>
-    <strong style="font-size: 16px;">${escapeHtml(req.title || '')}</strong>
-    <span class="request-title" style="font-size: 13px; color: #666;">Заявка №${req.id}</span>
-    ${req.deadline ? `<span class="deadline-badge">до ${new Date(req.deadline).toLocaleDateString()}</span>` : ''}
-</div>
+                            <strong style="font-size: 16px;">${escapeHtml(req.title || '')}</strong>
+                            <span class="request-title" style="font-size: 13px; color: #666;">Заявка №${req.id}</span>
+                            ${req.deadline ? `<span class="deadline-badge">до ${new Date(req.deadline).toLocaleDateString()}</span>` : '<span class="deadline-badge" style="background:#e5e7eb;">дедлайн не указан</span>'}
+                        </div>
                         <div>
                             <span>Контур: ${escapeHtml(req.contour || '')}</span>
                             <span class="status-badge 
@@ -1469,6 +1672,7 @@ function renderNewRequestForm() {
     const deadlineInput = document.getElementById('deadlineDate');
     if (deadlineInput) {
         deadlineInput.min = today;
+        deadlineInput.required = false;
     }
 }
 
@@ -1488,15 +1692,16 @@ async function createRequest() {
     if (!title) { alert('Введите название заявки'); return; }
     
     const deadlineDate = document.getElementById('deadlineDate')?.value;
-    if (!deadlineDate) { alert('Укажите срок выполнения (дедлайн)'); return; }
+    let deadline_at = null;
     
-    const today = new Date().toISOString().split('T')[0];
-    if (deadlineDate < today) {
-        alert('Дедлайн не может быть раньше сегодняшней даты');
-        return;
+    if (deadlineDate) {
+        const today = new Date().toISOString().split('T')[0];
+        if (deadlineDate < today) {
+            alert('Дедлайн не может быть раньше сегодняшней даты');
+            return;
+        }
+        deadline_at = new Date(deadlineDate).toISOString();
     }
-    
-    const deadline_at = new Date(deadlineDate).toISOString();
     
     const selectedWorks = [];
     document.querySelectorAll('#templatesListNew .work-item').forEach(item => {
@@ -1676,6 +1881,11 @@ function applyDeadlineFilter() {
     renderActiveTasksForExecutor();
 }
 
+function applyTaskStatusFilter() {
+    activeTaskStatusFilter = document.getElementById('executorTaskStatusFilter')?.value || 'all';
+    renderActiveTasksForExecutor();
+}
+
 function renderActiveTasksForExecutor() {
     const container = document.getElementById('executorTasks');
     if (!container) return;
@@ -1697,6 +1907,10 @@ function renderActiveTasksForExecutor() {
             const deadlineDate = new Date(t.deadline);
             return deadlineFilterMap[activeDeadlineFilter].filter(deadlineDate);
         });
+    }
+    
+    if (activeTaskStatusFilter && activeTaskStatusFilter !== 'all') {
+        filteredTasks = filteredTasks.filter(t => t.status === activeTaskStatusFilter);
     }
     
     const requestsMap = new Map();
@@ -1750,10 +1964,20 @@ function renderActiveTasksForExecutor() {
                 <label style="font-weight:500;">Фильтр по дедлайну: </label>
                 <select id="executorDeadlineFilter" onchange="applyDeadlineFilter()" style="padding:6px 12px; border-radius:6px; border:1px solid #d1d5db;">
                     <option value="all">Все</option>
+                    <option value="overdue" ${activeDeadlineFilter === 'overdue' ? 'selected' : ''}>Просрочено</option>
                     <option value="today" ${activeDeadlineFilter === 'today' ? 'selected' : ''}>Сегодня</option>
                     <option value="tomorrow" ${activeDeadlineFilter === 'tomorrow' ? 'selected' : ''}>Завтра</option>
                     <option value="this_week" ${activeDeadlineFilter === 'this_week' ? 'selected' : ''}>На этой неделе</option>
                     <option value="later" ${activeDeadlineFilter === 'later' ? 'selected' : ''}>Позже</option>
+                </select>
+            </div>
+            <div>
+                <label style="font-weight:500;">Фильтр по статусу: </label>
+                <select id="executorTaskStatusFilter" onchange="applyTaskStatusFilter()" style="padding:6px 12px; border-radius:6px; border:1px solid #d1d5db;">
+                    <option value="all">Все</option>
+                    <option value="В планах" ${activeTaskStatusFilter === 'В планах' ? 'selected' : ''}>В планах</option>
+                    <option value="В работе" ${activeTaskStatusFilter === 'В работе' ? 'selected' : ''}>В работе</option>
+                    <option value="Завершено" ${activeTaskStatusFilter === 'Завершено' ? 'selected' : ''}>Завершено</option>
                 </select>
             </div>
         </div>
@@ -1764,7 +1988,7 @@ function renderActiveTasksForExecutor() {
                         <div>
                             <strong style="font-size: 16px;">${escapeHtml(req.title)}</strong>
                             <span class="request-title" style="font-size: 13px; color: #666;">Заявка №${req.requestId}</span>
-                            ${req.deadline ? `<span class="deadline-badge ${new Date(req.deadline) < new Date() && req.status !== 'Завершено' ? 'deadline-overdue' : ''}">до ${new Date(req.deadline).toLocaleDateString()}</span>` : ''}
+                            ${req.deadline ? `<span class="deadline-badge ${new Date(req.deadline) < new Date() && req.status !== 'Завершено' ? 'deadline-overdue' : ''}">до ${new Date(req.deadline).toLocaleDateString()}</span>` : '<span class="deadline-badge" style="background:#e5e7eb;">дедлайн не указан</span>'}
                         </div>
                         <div>
                             <span>Контур: ${req.contour}</span>
@@ -1786,7 +2010,7 @@ function renderActiveTasksForExecutor() {
                     <div class="request-info-block" style="background:#f0f0f0; padding:12px; border-radius:8px; margin-bottom:15px;">
                         <strong>Информация о заявке</strong><br>
                         <span>Название: ${escapeHtml(req.title)}</span><br>
-                        <span>Дедлайн: ${req.deadline ? new Date(req.deadline).toLocaleDateString() : '—'}</span><br>
+                        <span>Дедлайн: ${req.deadline ? new Date(req.deadline).toLocaleDateString() : 'не указан'}</span><br>
                         <span>Контур: ${escapeHtml(req.contour)}${req.contour_description ? ` (${escapeHtml(req.contour_description)})` : ''}</span><br>
                         <span>Статус: ${req.status}</span>
                     </div>
@@ -1805,11 +2029,11 @@ function renderActiveTasksForExecutor() {
                                 </div>
                                 <div class="task-meta">
                                     <span>Время: ${task.hours} ч</span>
-                                    ${task.description ? `<span style="margin-left:12px; font-size:11px; color:#888;">${escapeHtml(task.description.length > 80 ? task.description.substring(0, 80) + '...' : task.description)}</span>` : ''}
+                                    ${task.description ? `<span style="margin-left:12px; font-size:11px; color:#888;">📝 ${escapeHtml(task.description.length > 80 ? task.description.substring(0, 80) + '...' : task.description)}</span>` : ''}
                                 </div>
                                 ${task.comment ? `
                                     <div class="task-comment" style="margin-top:8px; font-size:12px; color:#666; background:#fef3c7; padding:8px; border-radius:6px;">
-                                        Комментарий: ${escapeHtml(task.comment)}
+                                        💬 Комментарий: ${escapeHtml(task.comment)}
                                     </div>
                                 ` : ''}
                                 <div style="margin-top:10px;">
