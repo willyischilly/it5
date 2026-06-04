@@ -13,7 +13,9 @@ let activeContourFilter = null;
 let activeDeadlineFilter = 'all';
 let activeTaskStatusFilter = 'all';
 let availableExecutors = [];
-
+let chartsInitialized = false;
+let requestsChartInstance = null;
+let tasksChartInstance = null;
 // Для фильтров у заказчика
 let customerStatusFilter = 'all';
 let customerExecutorFilter = 'all';
@@ -292,8 +294,8 @@ async function createAdminUser() {
         alert('Введите корректный email');
         return;
     }
-    if (password.length < 3) {
-        alert('Пароль должен быть не менее 3 символов');
+    if (password.length < 6) {
+        alert('Пароль должен быть не менее 6 символов');
         return;
     }
     if (role === 'admin') {
@@ -372,7 +374,7 @@ async function saveEditUser() {
         patronymic: patronymic || null,
         role 
     };
-    if (password && password.length >= 3) {
+    if (password && password.length >= 6) {
         body.password = password;
     }
     
@@ -1327,7 +1329,7 @@ function renderFiltersAndMetrics() {
     const executors = [...new Set(mockRequests.flatMap(r => r.tasks.map(t => t.executor_name)).filter(e => e))];
     
     const filterHtml = `
-        <div class="filter-section" style="margin-bottom:20px; padding:12px; background:#f9fafb; border-radius:8px; display:flex; gap:16px; flex-wrap:wrap; align-items:flex-end;">
+        <div id="customerFilterSection" class="filter-section" style="margin-bottom:20px; padding:12px; background:#f9fafb; border-radius:8px; display:flex; gap:16px; flex-wrap:wrap; align-items:flex-end;">
             <div>
                 <label style="font-weight:500;">Статус заявки:</label>
                 <select id="customerStatusFilter" onchange="applyCustomerFilters()" style="padding:6px 12px; border-radius:6px; border:1px solid #d1d5db; margin-left:8px;">
@@ -1409,9 +1411,9 @@ function renderFiltersAndMetrics() {
                         </thead>
                         <tbody>
                             ${Object.entries(executorStats).map(([name, stats]) => `
-                                <tr><td>${escapeHtml(name)}</td><td>${stats.tasks}</td><td>${stats.hours}</td></tr>
+                                <tr><td style="padding:8px;">${escapeHtml(name)}</td><td style="padding:8px;">${stats.tasks}</td><td style="padding:8px;">${stats.hours}</td></tr>
                             `).join('')}
-                            ${Object.keys(executorStats).length === 0 ? '<tr><td colspan="3">Нет данных</td></tr>' : ''}
+                            ${Object.keys(executorStats).length === 0 ? '<tr><td colspan="3" style="padding:8px;">Нет данных</td></tr>' : ''}
                         </tbody>
                     </table>
                 </div>
@@ -1419,16 +1421,36 @@ function renderFiltersAndMetrics() {
         </div>
     `;
     
-    const existingMetrics = document.getElementById('metricsPanel');
-    if (existingMetrics) existingMetrics.remove();
+    // Обновляем или создаём панель метрик
+    let metricsPanel = document.getElementById('metricsPanel');
+    if (metricsPanel) {
+        metricsPanel.remove();
+    }
     container.insertAdjacentHTML('beforebegin', metricsHtml);
     
-    // Рисуем диаграммы
+    // Обновляем или создаём фильтры
+    let filterSection = document.getElementById('customerFilterSection');
+    if (filterSection) {
+        filterSection.remove();
+    }
+    container.insertAdjacentHTML('beforebegin', filterHtml);
+    
+    // Пересоздаём диаграммы (уничтожаем старые)
+    if (requestsChartInstance) {
+        requestsChartInstance.destroy();
+        requestsChartInstance = null;
+    }
+    if (tasksChartInstance) {
+        tasksChartInstance.destroy();
+        tasksChartInstance = null;
+    }
+    
+    // Создаём новые диаграммы с задержкой
     setTimeout(() => {
         if (typeof Chart !== 'undefined') {
             const requestsCtx = document.getElementById('requestsChart')?.getContext('2d');
             if (requestsCtx) {
-                new Chart(requestsCtx, {
+                requestsChartInstance = new Chart(requestsCtx, {
                     type: 'doughnut',
                     data: {
                         labels: ['Завершено', 'В работе', 'Черновик', 'Просрочено'],
@@ -1442,9 +1464,10 @@ function renderFiltersAndMetrics() {
                     options: { responsive: true, maintainAspectRatio: true }
                 });
             }
+            
             const tasksCtx = document.getElementById('tasksChart')?.getContext('2d');
             if (tasksCtx) {
-                new Chart(tasksCtx, {
+                tasksChartInstance = new Chart(tasksCtx, {
                     type: 'doughnut',
                     data: {
                         labels: ['Завершено', 'В работе', 'В планах'],
@@ -1459,16 +1482,10 @@ function renderFiltersAndMetrics() {
                 });
             }
         } else {
-            console.warn('Chart.js не загружен. Добавьте <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script> в HTML');
+            console.warn('Chart.js не загружен');
         }
-    }, 50);
-    
-    const filterDiv = document.getElementById('customerFilterSection');
-    if (filterDiv) filterDiv.remove();
-    container.insertAdjacentHTML('beforebegin', filterHtml);
-    document.getElementById('customerFilterSection')?.remove();
-    const filterSection = document.querySelector('.filter-section');
-    if (filterSection) filterSection.id = 'customerFilterSection';
+    }, 100);
+
 }
 
 function applyCustomerFilters() {
