@@ -1,4 +1,3 @@
-// ========== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ==========
 let currentUser = null;
 let mockTemplates = [];
 let mockRequests = [];
@@ -16,7 +15,6 @@ let availableExecutors = [];
 let chartsInitialized = false;
 let requestsChartInstance = null;
 let tasksChartInstance = null;
-// Для фильтров у заказчика
 let customerStatusFilter = 'all';
 let customerExecutorFilter = 'all';
 let customerContourFilter = 'all';
@@ -76,7 +74,6 @@ const deadlineFilterMap = {
     }}
 };
 
-// ========== API HELPER ==========
 async function apiRequest(endpoint, method, body = null, needAuth = true) {
     const headers = { 'Content-Type': 'application/json' };
     if (needAuth) {
@@ -98,7 +95,6 @@ async function apiRequest(endpoint, method, body = null, needAuth = true) {
 function saveToken(token) { localStorage.setItem('token', token); }
 function clearToken() { localStorage.removeItem('token'); }
 
-// ========== ЗАГРУЗКА ДАННЫХ ==========
 async function loadTemplatesFromServer() {
     try {
         const endpoint = currentUser?.role === 'admin' ? '/admin/works' : '/works';
@@ -223,7 +219,6 @@ async function loadExecutorTasks() {
     }
 }
 
-// ========== УПРАВЛЕНИЕ ПОЛЬЗОВАТЕЛЯМИ (АДМИН) ==========
 async function loadAdminUsers() {
     try {
         const users = await apiRequest('/admin/users', 'GET');
@@ -409,7 +404,6 @@ async function deleteAdminUser(userId) {
     }
 }
 
-// ========== УПРАВЛЕНИЕ КОНТУРАМИ (АДМИН) ==========
 async function loadAdminContours() {
     try {
         const contours = await apiRequest('/admin/contours', 'GET');
@@ -521,7 +515,6 @@ async function deleteAdminContour(id) {
     }
 }
 
-// ========== ЖУРНАЛЫ ==========
 async function loadRequestLogs(limit = 10, requestId = null) {
     try {
         let url = `/admin/request-logs?limit=${limit}`;
@@ -612,7 +605,7 @@ function filterTaskLogs() {
     loadTaskLogs(limit, taskId || null, requestId || null);
 }
 
-// ========== РЕДАКТИРОВАНИЕ РАБОТ (АДМИН) ==========
+
 function editTemplateWork(id, name, description, hours) {
     document.getElementById('editWorkId').value = id;
     document.getElementById('editWorkName').value = name;
@@ -645,7 +638,6 @@ async function saveEditWork() {
     }
 }
 
-// ========== ОТЧЁТЫ ==========
 async function generateReport(requestId, format = 'json') {
     try {
         const request = mockRequests.find(r => r.id === requestId);
@@ -722,7 +714,6 @@ async function generateSummaryReport(format = 'json') {
     }
 }
 
-// ========== ПРОДЛЕНИЕ ДЕДЛАЙНА ==========
 async function extendDeadline(requestId) {
     const today = new Date().toISOString().split('T')[0];
     const newDeadline = prompt(`Введите новую дату (ГГГГ-ММ-ДД):\nНе ранее ${today}`);
@@ -744,7 +735,6 @@ async function extendDeadline(requestId) {
     }
 }
 
-// ========== НАЗНАЧЕНИЕ ИСПОЛНИТЕЛЕЙ ==========
 async function assignExecutorToTask(requestId, taskId, executorId) {
     try {
         await apiRequest(`/requests/${requestId}/tasks/${taskId}/assign`, 'PUT', { executor_id: executorId });
@@ -861,7 +851,6 @@ async function confirmAssignExecutor(requestId, taskId) {
     await assignExecutorToTask(requestId, taskId, executorId);
 }
 
-// ========== МОДАЛЬНОЕ ОКНО РЕДАКТИРОВАНИЯ ЗАДАЧИ ==========
 let currentEditTask = null;
 
 function showEditTaskModal(requestId, taskId) {
@@ -954,7 +943,6 @@ async function saveEditTask() {
     alert('Задача обновлена');
 }
 
-// ========== МОДАЛЬНОЕ ОКНО ДОБАВЛЕНИЯ КОММЕНТАРИЯ ==========
 let currentCommentTask = null;
 
 function showCommentModal(requestId, taskId) {
@@ -1019,7 +1007,7 @@ async function saveComment() {
     alert('Комментарий добавлен');
 }
 
-// ========== КОММЕНТАРИИ ==========
+
 function truncateComment(comment, maxLength = 150) {
     if (!comment) return '';
     if (comment.length <= maxLength) return comment;
@@ -1031,7 +1019,6 @@ function getDisplayComment(task) {
     return truncateComment(task.comment, 150);
 }
 
-// ========== РЕДАКТИРОВАНИЕ ЗАДАЧ (СТАРЫЙ МЕТОД - ЗАМЕНЁН) ==========
 function editTask(requestId, taskId) {
     showEditTaskModal(requestId, taskId);
 }
@@ -1111,7 +1098,6 @@ async function addTasksToRequest(requestId, worksData) {
     }
 }
 
-// ========== РЕГИСТРАЦИЯ ==========
 function showRegistrationModal() {
     document.getElementById('regEmail').value = '';
     document.getElementById('regLastName').value = '';
@@ -1175,7 +1161,6 @@ async function registerUser() {
     }
 }
 
-// ========== АВТОРИЗАЦИЯ ==========
 async function login(email, password) {
     if (!email.includes('@')) { alert('Введите корректный email'); return false; }
     try {
@@ -1229,7 +1214,6 @@ function logout() {
     document.getElementById('executorPanel').style.display = 'none';
 }
 
-// ========== АДМИН ==========
 async function renderAdminPanel() {
     document.querySelectorAll('.admin-tab').forEach(btn => {
         btn.onclick = async () => {
@@ -1312,7 +1296,6 @@ function renderSummaryReportButton() {
     container.insertAdjacentHTML('beforebegin', btnHtml);
 }
 
-// ========== ЗАКАЗЧИК ==========
 function renderCustomerView() {
     renderActiveTasksForCustomer();  // сначала заявки
     renderNewRequestForm();
@@ -1883,7 +1866,7 @@ async function deleteRequest(requestId) {
     }
 }
 
-// ========== ИСПОЛНИТЕЛЬ ==========
+
 function renderExecutorView() {
     renderActiveTasksForExecutor();
 }
@@ -2286,7 +2269,7 @@ function closeRequestDetailModal() {
     document.getElementById('requestDetailModal').style.display = 'none';
 }
 
-// ========== ВСПОМОГАТЕЛЬНЫЕ ==========
+
 function initTabs() {
     document.querySelectorAll('.tab-btn:not(.admin-tab)').forEach(btn => {
         btn.onclick = () => {
@@ -2320,7 +2303,6 @@ async function restoreSession() {
     }
 }
 
-// ========== ЗАПУСК ==========
 restoreSession();
 
 const loginForm = document.getElementById('loginForm');
