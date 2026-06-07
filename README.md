@@ -13,18 +13,7 @@ cd it5
 copy .env.example .env
 ```
 
-Открыть `.env` и заполнить значения:
-
-```env
-DB_USER=postgres
-DB_PASSWORD=102030
-DB_NAME=planner
-
-JWT_SECRET=your_super_secret_key_min_32_characters
-
-SEED_ADMIN_EMAIL=admin@planner.local
-SEED_ADMIN_PASSWORD=admin123456
-```
+Открыть `.env` и заполнить значения
 
 ### 3. Запустить проект
 
