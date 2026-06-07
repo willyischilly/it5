@@ -705,7 +705,7 @@ textarea {
     padding: 16px;
     margin-bottom: 16px;
     border-left: 3px solid #ed1c24;
-    border-bottom: 1px solid #e0e0e0; /* ДОБАВИТЬ ЭТО */
+    border-bottom: 1px solid #e0e0e0; 
 }
 
     .request-item:not(:last-child) {
